@@ -1,0 +1,10 @@
+# pack-refs with: peeled fully-peeled sorted 
+112752820790bc003d7312ce820c98a103503b80 refs/heads/Hao
+a6d0a4f61403d9eb76052741cde363838f79898b refs/heads/demo
+dba9ca4d107804757a92683b41bca89f21713485 refs/heads/long
+ac8304c2fa4d6e4eb7253972e869d2839de1e6dd refs/heads/main
+08e7c8855b838909f7ce7e59d1bc9c53810bfc0b refs/heads/phpBranch
+bc386a337cf5885faabbf5b6f2e8a8d345c5879a refs/heads/sr
+e9c4416c082d95a58b165f5cbece03bca77024b1 refs/heads/test
+d68711406b28de718c7aca51edf41977ba25d3ce refs/heads/user-demo
+e9c4416c082d95a58b165f5cbece03bca77024b1 refs/pull/1/head
