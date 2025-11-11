@@ -1109,7 +1109,21 @@ while ($brand = mysqli_fetch_assoc($brands_result)) {
             margin: 5px 0;
         }
     }
-
+    #addStockModal {
+                display: none;
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background-color: #ffffff;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+                z-index: 1001; /* higher than overlay (999) */
+                width: 400px;
+                max-width: 90%;
+                box-sizing: border-box;
+            }
     /* Form Section Separator */
     .form-section {
         border-bottom: 1px solid #eee;
@@ -1723,6 +1737,10 @@ while ($brand = mysqli_fetch_assoc($brands_result)) {
     <button onclick="confirmDeleteProduct(' . $row['product_id'] . ')" class="delete-btn">
         <i class="fa-solid fa-trash"></i> Delete
     </button>
+    <button onclick="openAddStockForm(' . $row['product_id'] . ')" class="stock-btn">
+    <i class="fa-solid fa-boxes-stacked"></i> Add Stock
+</button>
+
 </td>';
                             echo '</tr>';
                         }
@@ -2048,6 +2066,31 @@ while ($brand = mysqli_fetch_assoc($brands_result)) {
             </form>
         </div>
     </div>
+    <!-- Add Stock Modal -->
+<div id="addStockModal" style="display: none;">
+    <h3>Add Stock</h3>
+    <form id="addStockForm" method="POST">
+        <input type="hidden" id="stock_product_id" name="product_id">
+
+        <div class="form-section">
+            <div>
+                <label for="current_stock">Current Stock:</label>
+                <input type="number" id="current_stock" name="current_stock" readonly>
+            </div>
+
+            <div>
+                <label for="add_stock_quantity" class="required">Add Quantity:</label>
+                <input type="number" id="add_stock_quantity" name="add_quantity" min="1" required>
+            </div>
+        </div>
+
+        <div class="form-buttons">
+            <button type="submit" name="save_stock">Update Stock</button>
+            <button type="button" onclick="closeAddStockForm()">Cancel</button>
+        </div>
+    </form>
+</div>
+
 
     <div class="modal-overlay" id="modalOverlay"></div>
     <script>
@@ -2250,6 +2293,64 @@ while ($brand = mysqli_fetch_assoc($brands_result)) {
             document.getElementById('editProductModal').style.display = 'none';
             document.getElementById('modalOverlay').style.display = 'none';
         }
+        // Mở form Add Stock
+function openAddStockForm(productId) {
+    fetch('get-stock.php?id=' + productId)
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('stock_product_id').value = productId;
+            document.getElementById('current_stock').value = data.stock ?? 0;
+            document.getElementById('add_stock_quantity').value = '';
+            document.getElementById('addStockModal').style.display = 'block';
+            const overlay = document.getElementById('modalOverlay');
+            if (overlay) overlay.style.display = 'block';
+        })
+        .catch(error => {
+            console.error('Fetch error:', error);
+            alert('Cannot load stock data.');
+        });
+}
+
+// Đóng form Add Stock
+function closeAddStockForm() {
+    document.getElementById('addStockModal').style.display = 'none';
+    document.getElementById('modalOverlay').style.display = 'none';
+}
+// Close modals when clicking the overlay
+document.addEventListener('DOMContentLoaded', function () {
+    const overlay = document.getElementById('modalOverlay');
+    if (overlay) {
+        overlay.addEventListener('click', function () {
+            // Hide common modals if they are open
+            const modals = ['addStockModal', 'editProductModal', 'addProductModal', 'deleteConfirmModal'];
+            modals.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = 'none';
+            });
+            overlay.style.display = 'none';
+        });
+    }
+});
+// Gửi form cập nhật stock
+document.getElementById('addStockForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+
+    fetch('update-stock.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+        alert(data.message);
+        closeAddStockForm();
+        location.reload();
+    })
+    .catch(err => {
+        console.error(err);
+        alert('Failed to update stock.');
+    });
+});
 
 
 
@@ -2477,4 +2578,3 @@ while ($brand = mysqli_fetch_assoc($brands_result)) {
 </html>
 <?php
 include 'footer.php';
-?>

@@ -27,11 +27,6 @@ mysqli_stmt_bind_param($stmt, "ii", $car['brand_id'], $car['product_id']);
 mysqli_stmt_execute($stmt);
 $similar_cars = mysqli_stmt_get_result($stmt);
 
-// Get car name from URL
-if (!isset($_GET['name'])) {
-    echo "<script>window.location.href='index.php';</script>";
-    exit();
-}
 // First, modify the PHP section to fetch additional images
 $car_name = mysqli_real_escape_string($connect, $_GET['name']);
 
@@ -1088,6 +1083,11 @@ $additional_images_result = mysqli_stmt_get_result($stmt);
                 </button>
             <?php endif; ?>
         </div>
+        <?php if ($car['remain_quantity'] > 0): ?>
+            <p style="color:#28a745;margin-top:10px;">Còn lại: <?php echo $car['remain_quantity']; ?> xe</p>
+        <?php else: ?>
+            <p style="color:red;margin-top:10px;">Sản phẩm tạm hết hàng</p>
+        <?php endif; ?>
         </div>
     </main>
     <script>
@@ -1099,15 +1099,16 @@ $additional_images_result = mysqli_stmt_get_result($stmt);
                 },
                 body: `product_id=${productId}&quantity=1`
             })
-                .then(response => response.json())
+                .then(response => {
+                    // try to parse JSON; if parse fails, show a generic error
+                    return response.json().catch(() => ({ success: false, message: 'Lỗi phản hồi từ server' }));
+                })
                 .then(data => {
+                    const msg = data.message || (data.success ? 'Thêm vào giỏ hàng thành công!' : 'Có lỗi xảy ra khi thêm vào giỏ hàng');
+                    const type = data.success ? 'success' : 'error';
+                    showNotification(msg, type);
                     if (data.success) {
-                        showNotification('Thêm vào giỏ hàng thành công!', 'success');
-                        setTimeout(() => {
-                            window.location.href = 'cart.php';
-                        }, 1500);
-                    } else {
-                        showNotification('Có lỗi xảy ra khi thêm vào giỏ hàng', 'error');
+                        setTimeout(() => { window.location.href = 'cart.php'; }, 1200);
                     }
                 })
                 .catch(error => {
