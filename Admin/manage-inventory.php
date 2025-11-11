@@ -1,18 +1,37 @@
 <?php
 include 'header.php';
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
-// Xử lý cập nhật tồn kho
+
+// Nếu header.php đã khởi tạo $connect thì không cần làm gì, nếu chưa hãy đảm bảo kết nối DB có biến $connect
+// ví dụ: $connect = mysqli_connect('localhost','username','password','webbanoto');
+
+// Xử lý cập nhật tồn kho (vẫn giữ phần này theo yêu cầu)
 if (isset($_POST['update_stock']) && isset($_POST['product_id'])) {
     $product_id = intval($_POST['product_id']);
     $new_stock = intval($_POST['new_stock']);
 
-    $stmt = mysqli_prepare($connect, "UPDATE products SET stock = ? WHERE product_id = ?");
-    mysqli_stmt_bind_param($stmt, "ii", $new_stock, $product_id);
-    if (mysqli_stmt_execute($stmt)) {
-        $_SESSION['notification'] = ['message' => '✅ Cập nhật tồn kho thành công!', 'type' => 'success'];
+    $stmt = mysqli_prepare($connect, "UPDATE products SET remain_quantity = ? WHERE product_id = ?");
+    if ($stmt) {
+        mysqli_stmt_bind_param($stmt, "ii", $new_stock, $product_id);
+        if (mysqli_stmt_execute($stmt)) {
+            $_SESSION['notification'] = ['message' => '✅ Cập nhật tồn kho thành công!', 'type' => 'success'];
+        } else {
+            $_SESSION['notification'] = ['message' => '❌ Cập nhật thất bại!', 'type' => 'error'];
+        }
+        mysqli_stmt_close($stmt);
     } else {
-        $_SESSION['notification'] = ['message' => '❌ Cập nhật thất bại!', 'type' => 'error'];
+        // fallback
+        $q = "UPDATE products SET remain_quantity = " . $new_stock . " WHERE product_id = " . $product_id;
+        if (mysqli_query($connect, $q)) {
+            $_SESSION['notification'] = ['message' => '✅ Cập nhật tồn kho thành công!', 'type' => 'success'];
+        } else {
+            $_SESSION['notification'] = ['message' => '❌ Cập nhật thất bại!', 'type' => 'error'];
+        }
     }
+
     echo "<script>window.location.href='manage-inventory.php';</script>";
     exit();
 }
@@ -22,21 +41,22 @@ $where = [];
 $params = [];
 $types = "";
 
-// Lọc theo brand_id
+// Lọc theo brand_id (category) - brand_id là số trong DB (tham số int)
 if (!empty($_GET['category'])) {
+    $cat = intval($_GET['category']);
     $where[] = "brand_id = ?";
-    $params[] = $_GET['category'];
-    $types .= "s";
+    $params[] = $cat;
+    $types .= "i";
 }
 
-// Lọc theo mức tồn kho
+// Lọc theo mức tồn kho (dùng remain_quantity trong DB)
 if (!empty($_GET['stock_filter'])) {
-    if ($_GET['stock_filter'] == 'low') $where[] = "stock < 10";
-    if ($_GET['stock_filter'] == 'out') $where[] = "stock = 0";
+    if ($_GET['stock_filter'] == 'low') $where[] = "remain_quantity < 10";
+    if ($_GET['stock_filter'] == 'out') $where[] = "remain_quantity = 0";
 }
 
-// Câu query cơ bản
-$query = "SELECT * FROM products";
+// Câu query: alias remain_quantity thành stock để giữ giao diện cũ
+$query = "SELECT *, remain_quantity AS stock FROM products";
 if ($where) $query .= " WHERE " . implode(" AND ", $where);
 
 // Sắp xếp
@@ -44,20 +64,35 @@ $sort = $_GET['sort'] ?? 'id_asc';
 switch ($sort) {
     case 'price_desc': $query .= " ORDER BY price DESC"; break;
     case 'price_asc': $query .= " ORDER BY price ASC"; break;
-    case 'stock_desc': $query .= " ORDER BY stock DESC"; break;
-    case 'stock_asc': $query .= " ORDER BY stock ASC"; break;
+    case 'stock_desc': $query .= " ORDER BY remain_quantity DESC"; break;
+    case 'stock_asc': $query .= " ORDER BY remain_quantity ASC"; break;
     default: $query .= " ORDER BY product_id ASC";
 }
 
-$stmt = mysqli_prepare($connect, $query);
-if ($params) mysqli_stmt_bind_param($stmt, $types, ...$params);
-mysqli_stmt_execute($stmt);
-$result = mysqli_stmt_get_result($stmt);
+// Prepare + execute (vẫn dùng prepare nếu có params)
+if ($stmt = mysqli_prepare($connect, $query)) {
+    if ($params) {
+        mysqli_stmt_bind_param($stmt, $types, ...$params);
+    }
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    mysqli_stmt_close($stmt);
+} else {
+    // nếu prepare lỗi, fallback dùng mysqli_query
+    $result = mysqli_query($connect, $query);
+    if ($result === false) {
+        die("Lỗi query: " . mysqli_error($connect));
+    }
+}
 
-// Hiển thị thông báo
+// Hiển thị thông báo (notification)
 if (isset($_SESSION['notification'])) {
     echo "<script>
-        showNotification('" . addslashes($_SESSION['notification']['message']) . "', '" . $_SESSION['notification']['type'] . "');
+        if (typeof showNotification === 'function') {
+            showNotification('" . addslashes($_SESSION['notification']['message']) . "', '" . $_SESSION['notification']['type'] . "');
+        } else {
+            alert('" . addslashes($_SESSION['notification']['message']) . "');
+        }
     </script>";
     unset($_SESSION['notification']);
 }
@@ -71,6 +106,7 @@ if (isset($_SESSION['notification'])) {
     <link rel="icon" href="../User/dp56vcf7.png" type="image/png">
     <script src="https://kit.fontawesome.com/8341c679e5.js" crossorigin="anonymous"></script>
     <style>
+        /* Giữ nguyên style của bạn (không đổi giao diện) */
         body { font-family: Arial, sans-serif; background: #f4f6f8; margin: 0; padding: 0; }
         .admin-section {
             margin: 20px; padding: 20px; background: white; border-radius: 8px;
@@ -84,12 +120,6 @@ if (isset($_SESSION['notification'])) {
         .out-stock { color: #c0392b; font-weight: bold; }
         .good-stock { color: #27ae60; font-weight: bold; }
 
-        .edit-btn {
-            background: #1abc9c; color: white; border: none;
-            padding: 8px 12px; border-radius: 4px; cursor: pointer;
-        }
-        .edit-btn:hover { background: #16a085; }
-
         .filter-container { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
         .filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
         .filter-group label { font-weight: 600; color: #34495e; }
@@ -99,15 +129,6 @@ if (isset($_SESSION['notification'])) {
         .filter-buttons { display: flex; gap: 10px; justify-content: flex-end; margin-top: 15px; }
         .filter-btn { background: #1abc9c; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; }
         .reset-btn { background: #bdc3c7; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; }
-
-        /* Modal */
-        .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%;
-                 background:rgba(0,0,0,0.5); justify-content:center; align-items:center; }
-        .modal-content { background:white; padding:20px; border-radius:8px; width:400px; text-align:center; }
-        .modal input { width:100%; padding:8px; margin:10px 0; border-radius:4px; border:1px solid #ccc; }
-        .modal button { margin-top:10px; padding:8px 12px; border:none; border-radius:4px; cursor:pointer; }
-        .save-btn { background:#1abc9c; color:white; }
-        .cancel-btn { background:#95a5a6; color:white; }
     </style>
 </head>
 <body>
@@ -121,10 +142,13 @@ if (isset($_SESSION['notification'])) {
                     <select name="category">
                         <option value="">Tất cả</option>
                         <?php
-                        $cat_query = mysqli_query($connect, "SELECT DISTINCT brand_id FROM products");
+                        // Lấy danh sách hãng từ car_types (cột type_id, type_name)
+                        $cat_query = mysqli_query($connect, "SELECT type_id, type_name FROM car_types");
                         while ($cat = mysqli_fetch_assoc($cat_query)) {
-                            $selected = ($_GET['category'] ?? '') == $cat['brand_id'] ? 'selected' : '';
-                            echo "<option value='{$cat['brand_id']}' $selected>Hãng #{$cat['brand_id']}</option>";
+                            $val = $cat['type_id'];
+                            $label = htmlspecialchars($cat['type_name']);
+                            $selected = (isset($_GET['category']) && intval($_GET['category']) == $val) ? 'selected' : '';
+                            echo "<option value='{$val}' $selected>{$label} (ID {$val})</option>";
                         }
                         ?>
                     </select>
@@ -133,17 +157,17 @@ if (isset($_SESSION['notification'])) {
                     <label>Tình trạng tồn kho:</label>
                     <select name="stock_filter">
                         <option value="">Tất cả</option>
-                        <option value="low" <?= ($_GET['stock_filter'] ?? '') == 'low' ? 'selected' : '' ?>>Dưới 10</option>
-                        <option value="out" <?= ($_GET['stock_filter'] ?? '') == 'out' ? 'selected' : '' ?>>Hết hàng</option>
+                        <option value="low" <?= (isset($_GET['stock_filter']) && $_GET['stock_filter'] === 'low') ? 'selected' : '' ?>>Dưới 10</option>
+                        <option value="out" <?= (isset($_GET['stock_filter']) && $_GET['stock_filter'] === 'out') ? 'selected' : '' ?>>Hết hàng</option>
                     </select>
                 </div>
                 <div class="filter-group">
                     <label>Sắp xếp:</label>
                     <select name="sort">
-                        <option value="price_desc">Giá cao → thấp</option>
-                        <option value="price_asc">Giá thấp → cao</option>
-                        <option value="stock_desc">Tồn kho nhiều → ít</option>
-                        <option value="stock_asc">Tồn kho ít → nhiều</option>
+                        <option value="price_desc" <?= (isset($_GET['sort']) && $_GET['sort']=='price_desc')?'selected':'' ?>>Giá cao → thấp</option>
+                        <option value="price_asc" <?= (isset($_GET['sort']) && $_GET['sort']=='price_asc')?'selected':'' ?>>Giá thấp → cao</option>
+                        <option value="stock_desc" <?= (isset($_GET['sort']) && $_GET['sort']=='stock_desc')?'selected':'' ?>>Tồn kho nhiều → ít</option>
+                        <option value="stock_asc" <?= (isset($_GET['sort']) && $_GET['sort']=='stock_asc')?'selected':'' ?>>Tồn kho ít → nhiều</option>
                     </select>
                 </div>
             </div>
@@ -165,29 +189,33 @@ if (isset($_SESSION['notification'])) {
                     <th>Giá (₫)</th>
                     <th>Tồn kho</th>
                     <th>Trạng thái</th>
-                    <th>Hành động</th>
                 </tr>
             </thead>
             <tbody>
-                <?php while ($p = mysqli_fetch_assoc($result)): ?>
+                <?php
+                while ($p = mysqli_fetch_assoc($result)):
+                    $product_id = isset($p['product_id']) ? $p['product_id'] : '';
+                    $car_name = isset($p['car_name']) ? htmlspecialchars($p['car_name']) : '';
+                    $brand_id = isset($p['brand_id']) ? htmlspecialchars($p['brand_id']) : '';
+                    $price = isset($p['price']) ? number_format($p['price'], 0, ',', '.') : '0';
+                    // Vì đã alias remain_quantity AS stock trong SELECT, ta có $p['stock']
+                    $stock = isset($p['stock']) ? intval($p['stock']) : 0;
+                ?>
                     <tr>
-                        <td><?= $p['product_id'] ?></td>
-                        <td><?= htmlspecialchars($p['car_name']) ?></td>
-                        <td><?= htmlspecialchars($p['brand_id']) ?></td>
-                        <td><?= number_format($p['price'], 0, ',', '.') ?></td>
-                        <td><?= $p['stock'] ?></td>
+                        <td><?= $product_id ?></td>
+                        <td><?= $car_name ?></td>
+                        <td><?= $brand_id ?></td>
+                        <td><?= $price ?></td>
+                        <td><?= $stock ?></td>
                         <td>
                             <?php
-                                if ($p['stock'] == 0)
+                                if ($stock === 0)
                                     echo "<span class='out-stock'>Hết hàng</span>";
-                                elseif ($p['stock'] < 10)
+                                elseif ($stock < 10)
                                     echo "<span class='low-stock'>Sắp hết</span>";
                                 else
                                     echo "<span class='good-stock'>Còn hàng</span>";
                             ?>
-                        </td>
-                        <td>
-                            <button class="edit-btn" onclick="openModal(<?= $p['product_id'] ?>, <?= $p['stock'] ?>)">Chỉnh sửa</button>
                         </td>
                     </tr>
                 <?php endwhile; ?>
@@ -195,34 +223,6 @@ if (isset($_SESSION['notification'])) {
         </table>
     </div>
 
-    <!-- Modal chỉnh sửa tồn kho -->
-    <div id="stockModal" class="modal">
-        <div class="modal-content">
-            <h3>Cập nhật tồn kho</h3>
-            <form method="POST" action="manage-inventory.php">
-                <input type="hidden" name="product_id" id="modal_product_id">
-                <input type="number" name="new_stock" id="modal_stock" min="0" required>
-                <div>
-                    <button type="submit" name="update_stock" class="save-btn">Lưu</button>
-                    <button type="button" onclick="closeModal()" class="cancel-btn">Hủy</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <script>
-        function openModal(id, stock) {
-            document.getElementById('modal_product_id').value = id;
-            document.getElementById('modal_stock').value = stock;
-            document.getElementById('stockModal').style.display = 'flex';
-        }
-        function closeModal() {
-            document.getElementById('stockModal').style.display = 'none';
-        }
-        window.onclick = function(e) {
-            if (e.target.id === 'stockModal') closeModal();
-        }
-    </script>
 </body>
 </html>
 
