@@ -1,13 +1,37 @@
 <?php
 include 'header.php';
 
+// load options cho form popup
+$users_rs = $connect->query("SELECT id, username FROM users_acc WHERE status='activated' ORDER BY username");
+$USERS = $users_rs ? $users_rs->fetch_all(MYSQLI_ASSOC) : [];
+
+$pms_rs = $connect->query("
+  SELECT payment_method_id AS id, method_name AS name
+  FROM payment_methods
+  WHERE is_active = 1
+  ORDER BY method_name
+");
+$PMS = $pms_rs ? $pms_rs->fetch_all(MYSQLI_ASSOC) : [];
+
+$pros_rs = $connect->query("
+  SELECT product_id, car_name AS name, price, remain_quantity
+  FROM products
+  WHERE (status IS NULL OR status <> 'hidden') AND remain_quantity > 0
+  ORDER BY car_name
+");
+$PROS = $pros_rs ? $pros_rs->fetch_all(MYSQLI_ASSOC) : [];
+
 
 // Add this PHP function at the top of the file
 function buildFilterQuery($filters)
 {
-    $base_query = "SELECT o.*, u.username, u.full_name, u.phone_num, u.email 
-                   FROM orders o 
-                   JOIN users_acc u ON o.user_id = u.id";
+    // Base query (giữ shipping_address để còn sort theo Location)
+    $base_query = "SELECT 
+              o.order_id, o.order_date, o.order_status, o.total_amount, o.shipping_address,
+              u.username, u.full_name, u.phone_num, u.email
+            FROM orders o 
+            JOIN users_acc u ON o.user_id = u.id";
+
     $where_clauses = [];
     $params = [];
     $types = "";
@@ -31,12 +55,14 @@ function buildFilterQuery($filters)
         $types .= "s";
     }
 
-    // Location sorting
-    $order_by = !empty($filters['sort_location']) ?
-        "o.shipping_address ASC" :
-        "o.order_date DESC";
+    // Sort
+    $order_by = (!empty($filters['sort']) && $filters['sort'] === 'location')
+        ? "o.shipping_address ASC"
+        : ((!empty($filters['sort']) && $filters['sort'] === 'date_asc')
+            ? "o.order_date ASC"
+            : "o.order_date DESC");
 
-    // Combine where clauses
+    // Combine
     $query = $base_query;
     if (!empty($where_clauses)) {
         $query .= " WHERE " . implode(" AND ", $where_clauses);
@@ -45,6 +71,7 @@ function buildFilterQuery($filters)
 
     return ['query' => $query, 'params' => $params, 'types' => $types];
 }
+
 // Process status update first
 if (isset($_POST['update_status']) && isset($_POST['order_id'])) {
     try {
@@ -146,11 +173,63 @@ if (isset($_SESSION['notification'])) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manage Orders</title>
+
+    <style>
+        /* ===== Add New Order Modal (tự chứa, không đụng CSS cũ) ===== */
+        .order-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;z-index:9998}
+        .order-modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:9999}
+        .order-card{background:#fff;min-width:780px;max-width:90vw;max-height:85vh;overflow:auto;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.2)}
+        .order-header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #eee}
+        .order-body{padding:16px}
+        .order-footer{display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid #eee}
+        .order-row{display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+        .order-row select,.order-row input[type=number]{padding:6px 8px;border:1px solid #ccc;border-radius:6px}
+        .order-row select{min-width:260px}
+        .order-table{width:100%;border-collapse:collapse;margin-top:8px}
+        .order-table th,.order-table td{border:1px solid #e5e5e5;padding:8px;vertical-align:top}
+        .order-table tfoot td{font-weight:600}
+        .btn{padding:8px 12px;border:1px solid #cfcfcf;background:#f6f6f6;border-radius:8px;cursor:pointer}
+        .btn-primary{background:#1abc9c;border-color:#18a085;color:#fff}
+        .btn-danger{background:#dc3545;border-color:#c82333;color:#fff}
+        .btn-outline{background:#fff}
+        .hidden{display:none}
+        @media (max-width:820px){.order-card{min-width:94vw}}
+
+        .typeahead { position: relative; }
+        .typeahead .suggest {
+        position:absolute; left:0; right:0; top:100%;
+        background:#fff; border:1px solid #e5e5e5; border-top:none;
+        max-height:240px; overflow:auto; z-index:10000; display:none;
+        box-shadow:0 8px 24px rgba(0,0,0,.08);
+        }
+        .typeahead .s-item { padding:8px 10px; cursor:pointer; display:flex; justify-content:space-between; gap:8px }
+        .typeahead .s-item:hover { background:#f6f6f6 }
+        .typeahead .s-name { font-weight:600 }
+        .typeahead .s-meta { opacity:.7; font-size:.9em }
+
+        .qtybox{ display:flex; align-items:center; gap:6px }
+        .qtybox input{ width:90px; padding:6px 8px }
+        .qtybtn{ padding:6px 10px; border:1px solid #cfcfcf; background:#fff; border-radius:8px; cursor:pointer }
+    </style>
+
     <script src="mo.js"></script>
     <!-- <link rel="stylesheet" href="style.css"> -->
     <!-- <link rel="stylesheet" href="mo.css"> -->
     <link rel="icon" href="../User/dp56vcf7.png" type="image/png">
     <script src="https://kit.fontawesome.com/8341c679e5.js" crossorigin="anonymous"></script>
+
+    <style>
+    /* Style copy tương đồng với nút Add New Product */
+    .btn-add-new{
+    display:inline-flex; align-items:center; gap:8px;
+    padding:10px 16px; border-radius:8px;
+    background:#1abc9c; border:1px solid #18a085;
+    color:#fff !important; text-decoration:none !important;
+    font-weight:600; line-height:1; box-shadow:0 2px 0 #138f75;
+    }
+    .btn-add-new:hover{ background:#18a085; }
+    .btn-add-new:active{ transform:translateY(1px); box-shadow:0 1px 0 #138f75; }
+    </style>
 </head>
 <style>
     /* Admin Header */
@@ -686,6 +765,62 @@ if (isset($_SESSION['notification'])) {
 }
 </style>
 
+<style>
+/* Bọc bảng để có thanh trượt ngang */
+.table-scroll{
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Không xuống dòng trong ô => bảng sẽ rộng ra và cho phép kéo ngang */
+.admin-table.table-no-wrap th,
+.admin-table.table-no-wrap td{
+  white-space: nowrap;
+}
+
+/* ép bảng tối thiểu rộng hơn màn hình chút để bật scrollbar (tùy chỉnh) */
+.admin-table.table-no-wrap{
+  min-width: 1200px; /* hoặc 1400px nếu bạn có nhiều cột */
+}
+</style>
+
+<style>
+/* PM table: 5 cột (ID, Name, Status, Description, Action) */
+#pmTable{ table-layout:fixed; width:100%; }
+#pmTable th, #pmTable td{ vertical-align:top; }
+
+/* Widths */
+#pmTable th:nth-child(1){ width:80px; }    /* ID */
+#pmTable th:nth-child(2){ width:22%; }     /* Name */
+#pmTable th:nth-child(3){ width:120px; }   /* Status */
+#pmTable th:nth-child(4){ width:auto; }    /* Description */
+#pmTable th:nth-child(5){ width:220px; }   /* Action */
+
+/* Chỉ cho Description được xuống dòng */
+#pmTable td:nth-child(4), #pmTable th:nth-child(4){
+  white-space:normal!important;
+  word-break:break-word;
+  overflow-wrap:anywhere;
+}
+
+/* Không cho Status bẻ chữ */
+#pmTable td:nth-child(3), #pmTable th:nth-child(3){
+  white-space:nowrap;
+  word-break:normal;
+  overflow-wrap:normal;
+}
+
+/* ---- Badge trạng thái ẩn/hiện ---- */
+.badge{
+  padding:4px 8px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:600;
+}
+.badge--active{ background:#e8f5e9; color:#2e7d32; }
+.badge--hidden{ background:#ffebee; color:#c62828; }
+</style>
+
 <body>
 
 
@@ -763,57 +898,103 @@ if (isset($_SESSION['notification'])) {
         <div class="admin-section">
             <h2><i class="fas fa-list-check"></i>&nbsp;Manage Orders</h2>
 
+        <div style="display:flex; gap:10px; align-items:center; margin-bottom:14px;">
+          <button id="addOrderBtn" onclick="showOrderModal()">
+            <i class="fa-solid fa-plus"></i> Add New Order
+          </button>
+
+          <!-- NEW: Manage Payment Methods -->
+          <button id="pmBtn" type="button" class="btn" onclick="openPmModal()">
+            <i class="fa-solid fa-credit-card"></i> Manage Payment Methods
+          </button>
+        </div>
+
+      <style>
+      #addOrderBtn {
+        background-color: #007bff;
+        color: #fff;
+        border: none;
+        padding: 8px 14px;
+        border-radius: 6px;
+        font-weight: 600;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        transition: background-color 0.2s;
+      }
+      #addOrderBtn:hover {
+        background-color: #0069d9;
+      }
+      #pmBtn{background:#1abc9c; color:#fff; border:none; padding:8px 14px; 
+         border-radius:6px; font-weight:600; display:inline-flex; 
+         align-items:center; gap:6px; cursor:pointer}
+      #pmBtn:hover{background:#18a085}
+      </style>
+
+            <script>
+                document.addEventListener('DOMContentLoaded',function(){
+                const b=document.querySelector('.btn-add-new');
+                if(!b) return;
+                b.style.setProperty('color','#fff','important');
+                b.style.setProperty('text-decoration','none','important');
+                });
+            </script>
+
+          <div class="table-scroll">
             <table class="admin-table">
                 <thead>
-                    <tr>
-                        <th><i class="fas fa-hashtag"></i> ID</th>
-                        <th><i class="far fa-calendar-alt"></i> Order Date</th>
-                        <th><i class="fas fa-user"></i> Full Name/Username</th>
-                        <th style="width: 20%;"><i class="fas fa-map-marker-alt"></i> Address</th>
-                        <th><i class="fas fa-phone"></i> Phone Number</th>
-                        <th><i class="fas fa-envelope"></i> Email</th>
-                        <th><i class="fas fa-money-bill-wave"></i> Total Amount</th>
-                        <th><i class="fas fa-info-circle"></i> Status</th>
-                        <th><i class="fas fa-cogs"></i> Action</th>
-                    </tr>
+                  <tr>
+                    <th><i class="fas fa-hashtag"></i> ID</th>
+                    <th><i class="far fa-calendar-alt"></i> Order Date</th>
+                    <th><i class="fas fa-user"></i> Full Name / Username</th>
+                    <th><i class="fas fa-money-bill-wave"></i> Total Amount</th>
+                    <th><i class="fas fa-info-circle"></i> Status</th>
+                    <th><i class="fas fa-cogs"></i> Action</th>
+                  </tr>
                 </thead>
                                 <!-- Fix the table rows closing tag -->
                 <tbody>
                     <?php while ($order = mysqli_fetch_assoc($orders_result)): ?>
                         <tr>
-                            <td>#<?= htmlspecialchars($order['order_id']) ?></td>
-                            <td><?= date('d/m/Y H:i', strtotime($order['order_date'])) ?></td>
-                            <td>
-                                <strong><?= htmlspecialchars($order['full_name']) ?></strong><br>
-                                <small><?= htmlspecialchars($order['username']) ?></small>
-                            </td>
-                            <td><?= htmlspecialchars($order['shipping_address']) ?></td>
-                            <td><?= htmlspecialchars($order['phone_num']) ?></td>
-                            <td><?= htmlspecialchars($order['email']) ?></td>
-                            <td style="color:#008000;font-weight:bold;"><?= number_format($order['total_amount']) ?> ₫</td>
-                            <td>
-                                                                <!-- // Replace the span element with this cleaner version -->
-                                <span class="status-badge status-<?= str_replace(' ', '-', strtolower($order['order_status'])) ?>">
-                                    <?php
-                                    switch ($order['order_status']) {
-                                        case 'initiated': echo 'Initiated'; break;
-                                        case 'is pending': echo 'Is pending'; break;
-                                        case 'is confirmed': echo 'Is confirmed'; break;
-                                        case 'is delivering': echo 'Is delivering'; break;
-                                        case 'completed': echo 'Completed'; break;
-                                        case 'cancelled': echo 'Cancelled'; break;
-                                        default: echo $order['order_status'];
-                                    }
-                                    ?>
-
-                            </td>
-                            <td>
-                                <a href="manage-orders.php?edit=<?= $order['order_id'] ?>" class="edit-status-btn">
-                                    <i class="fas fa-edit"></i>
-                                    Edit order status
-                                </a>
-                            </td>
+                          <td>#<?= htmlspecialchars($order['order_id']) ?></td>
+                          <td><?= date('d/m/Y H:i', strtotime($order['order_date'])) ?></td>
+                          <td>
+                            <strong><?= htmlspecialchars($order['full_name']) ?></strong><br>
+                            <small><?= htmlspecialchars($order['username']) ?></small>
+                          </td>
+                          <td style="color:#008000;font-weight:bold;">
+                            <?= number_format($order['total_amount']) ?> ₫
+                          </td>
+                          <td>
+                            <span class="status-badge status-<?= str_replace(' ', '-', strtolower($order['order_status'])) ?>">
+                              <?php
+                                switch ($order['order_status']) {
+                                  case 'initiated': echo 'Initiated'; break;
+                                  case 'is pending': echo 'Is pending'; break;
+                                  case 'is confirmed': echo 'Is confirmed'; break;
+                                  case 'is delivering': echo 'Is delivering'; break;
+                                  case 'completed': echo 'Completed'; break;
+                                  case 'cancelled': echo 'Cancelled'; break;
+                                  default: echo $order['order_status'];
+                                }
+                              ?>
+                            </span>
+                          </td>
+                          <td class="td-actions">
+                            <a href="manage-orders.php?edit=<?= $order['order_id'] ?>" class="edit-status-btn">
+                              <i class="fas fa-edit"></i> Edit status
+                            </a>
+                            <a href="view-invoice.php?id=<?= $order['order_id'] ?>" target="_blank"
+                              class="btn btn-outline" style="
+                                background:#f8f9fa;border:1px solid #ccc;color:#333;
+                                padding:6px 10px;border-radius:6px;display:inline-flex;
+                                align-items:center;gap:6px;text-decoration:none;">
+                              <i class="fas fa-file-invoice"></i> View / Print
+                            </a>
+                          </td>
                         </tr>
+
                     <?php endwhile; ?>
                 </tbody>
             </table>
@@ -843,6 +1024,63 @@ if (isset($_SESSION['notification'])) {
             </div>
         </div>
         <!-- <hr> -->
+
+        <!-- Payment Methods Modal -->
+        <div id="pmModal" class="status-modal" style="display:none;">
+          <div class="modal-content" style="max-width:680px;">
+            <h3 style="margin-top:0;display:flex;justify-content:space-between;align-items:center">
+              <span>Payment Methods</span>
+              <button type="button" class="modal-btn cancel-btn" onclick="closePmModal()">Close</button>
+            </h3>
+
+            <!-- Add / Edit form -->
+            <form id="pmForm" onsubmit="return savePm(event)">
+              <input type="hidden" name="payment_method_id" id="pm_id">
+              <div class="filter-grid" style="grid-template-columns:1fr;">
+                <div class="filter-group">
+                  <label><i class="fas fa-signature"></i> Method name</label>
+                  <input type="text" name="method_name" id="pm_name" required>
+                </div>
+                <div class="filter-group">
+                  <label><i class="fas fa-align-left"></i> Description (optional)</label>
+                  <input type="text" name="description" id="pm_desc">
+                </div>
+              </div>
+              <div class="filter-buttons" style="justify-content:flex-end">
+                <button class="filter-btn" type="submit"><i class="fas fa-save"></i> Save</button>
+                <button class="reset-btn" type="button" onclick="resetPmForm()">Clear</button>
+              </div>
+            </form>
+
+            <hr style="margin:18px 0">
+
+            <!-- List -->
+            <div class="table-scroll">
+              <table class="admin-table" id="pmTable">
+                <colgroup>
+                  <col style="width:80px">      <!-- ID -->
+                  <col style="width:18%">       <!-- Name (co lại một chút) -->
+                  <col style="width:90px">      <!-- Status (nhỏ gọn) -->
+                  <col>                         <!-- Description (auto, rộng ra) -->
+                  <col style="width:260px">     <!-- Action (đủ 3 nút 1 hàng) -->
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th style="width:80px">ID</th>
+                    <th>Name</th>
+                    <th style="width:120px">Status</th>
+                    <th>Description</th>
+                    <th style="width:220px">Action</th>
+                  </tr>
+                </thead>
+                <tbody><!-- filled by JS --></tbody>
+              </table>
+            </div>
+
+            <div id="pmErr" style="margin-top:10px;color:#c62828;display:none"></div>
+          </div>
+        </div>
+
     </main>
 
     <script>
@@ -853,6 +1091,784 @@ if (isset($_SESSION['notification'])) {
             }
         }
     </script>
+
+<!-- ===== Modal: Add New Order ===== -->
+<div id="addOrderModal" style="display:none; position:fixed; inset:0; z-index:9999; align-items:center; justify-content:center;">
+  <div style="position:absolute; inset:0; background:rgba(0,0,0,.4)" onclick="hideOrderModal()"></div>
+  <div style="position:relative; background:#fff; width:min(1200px,96vw); max-height:88vh; overflow:auto; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.2); padding:16px 18px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <h3 style="margin:0">Add New Order</h3>
+      <button type="button" onclick="hideOrderModal()" class="btn">✕</button>
+    </div>
+
+    <form id="addOrderForm" method="post">
+      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+        <label>Customer</label>
+        <div class="typeahead" style="min-width:320px">
+        <input type="text" id="custSearch" placeholder="Type customer username..." style="min-width:320px; padding:6px 8px;">
+        <input type="hidden" name="user_id" id="custId">
+        <div class="suggest"></div>
+      </div>
+
+
+        <label>Payment</label>
+        <select name="payment_method_id" required style="min-width:220px; padding:6px 8px;">
+          <option value="">-- Select method --</option>
+          <?php foreach($PMS as $pm): ?>
+            <option value="<?=$pm['id']?>"><?=htmlspecialchars($pm['name'])?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+
+      <table style="width:100%; border-collapse:collapse;">
+        <thead>
+          <tr>
+            <th style="text-align:left; border:1px solid #eee; padding:8px; width:45%;">Product</th>
+            <th style="border:1px solid #eee; padding:8px;">Price</th>
+            <th style="border:1px solid #eee; padding:8px;">Stock</th>
+            <th style="border:1px solid #eee; padding:8px;">Qty</th>
+            <th style="border:1px solid #eee; padding:8px;">Subtotal</th>
+            <th style="border:1px solid #eee; padding:8px;"></th>
+          </tr>
+        </thead>
+        <tbody id="orderBody"></tbody>
+        <tfoot>
+          <tr>
+            <td colspan="4" style="text-align:right; border:1px solid #eee; padding:8px;">Subtotal</td>
+            <td style="border:1px solid #eee; padding:8px;"><span id="orderSubtotal">0</span></td>
+            <td style="border:1px solid #eee; padding:8px;"></td>
+          </tr>
+          <tr>
+            <td colspan="4" style="text-align:right; border:1px solid #eee; padding:8px;">VAT (10%)</td>
+            <td style="border:1px solid #eee; padding:8px;"><span id="orderVAT">0</span></td>
+            <td style="border:1px solid #eee; padding:8px;"></td>
+          </tr>
+          <tr>
+            <td colspan="4" style="text-align:right; border:1px solid #eee; padding:8px; font-weight:700;">Total</td>
+            <td style="border:1px solid #eee; padding:8px; font-weight:700;"><span id="orderTotal">0</span></td>
+            <td style="border:1px solid #eee; padding:8px;"></td>
+          </tr>
+        </tfoot>
+      </table>
+
+      <div style="margin-top:10px;">
+        <button type="button" class="btn" id="btnAddOrderRow">+ Add product</button>
+      </div>
+
+      <div id="orderErr" style="color:#c53030; margin-top:8px; display:none;"></div>
+
+      <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
+        <button type="button" class="btn" onclick="hideOrderModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create Order</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<style>
+.typeahead{position:relative}
+.typeahead .suggest{
+  position:absolute;left:0;right:0;top:100%;
+  background:#fff;border:1px solid #e5e5e5;border-top:none;
+  max-height:240px;overflow:auto;z-index:10000;display:none;
+  box-shadow:0 8px 24px rgba(0,0,0,.08)
+}
+.typeahead .s-item{padding:8px 10px;cursor:pointer;display:flex;justify-content:space-between;gap:8px}
+.typeahead .s-item:hover{background:#f6f6f6}
+.typeahead .s-name{font-weight:600}
+.typeahead .s-meta{opacity:.7;font-size:.9em}
+.qtybox{display:flex;align-items:center;gap:6px}
+.qtybox input{width:90px;padding:6px 8px}
+.qtybtn{padding:6px 10px;border:1px solid #cfcfcf;background:#fff;border-radius:8px;cursor:pointer}
+
+/* PM table: 5 cột (ID, Name, Status, Description, Action) */
+#pmTable{ table-layout:fixed; width:100%; }
+#pmTable th, #pmTable td{ vertical-align:top; }
+
+/* Widths */
+#pmTable th:nth-child(1){ width:80px; }    /* ID */
+#pmTable th:nth-child(2){ width:22%; }     /* Name */
+#pmTable th:nth-child(3){ width:120px; }   /* Status */
+#pmTable th:nth-child(4){ width:auto; }    /* Description */
+#pmTable th:nth-child(5){ width:220px; }   /* Action */
+
+/* Chỉ cho Description được xuống dòng */
+#pmTable td:nth-child(4), #pmTable th:nth-child(4){
+  white-space:normal!important;
+  word-break:break-word;
+  overflow-wrap:anywhere;
+}
+
+/* Không cho Status bẻ chữ */
+#pmTable td:nth-child(3), #pmTable th:nth-child(3){
+  white-space:nowrap;
+  word-break:normal;
+  overflow-wrap:normal;
+}
+
+
+/* Badge trạng thái */
+.badge{
+  padding:4px 8px;border-radius:999px;font-size:12px;font-weight:600;
+}
+.badge--active{ background:#e8f5e9;color:#2e7d32; }
+.badge--hidden{ background:#ffebee;color:#c62828; }
+
+/* PM table */
+#pmTable{ table-layout:fixed; width:100%; }
+#pmTable th, #pmTable td{ vertical-align:top; }
+
+/* Chỉ Description được xuống dòng, nhưng đừng bẻ từng ký tự */
+#pmTable th:nth-child(4),
+#pmTable td:nth-child(4){
+  white-space: normal !important;
+  word-break: normal;           /* bỏ break-word */
+  overflow-wrap: break-word;    /* đủ dùng cho từ dài */
+  min-width: 180px;             /* chống bị co hẹp quá mức */
+}
+
+/* Status không bẻ dòng */
+#pmTable th:nth-child(3),
+#pmTable td:nth-child(3){
+  white-space: nowrap;
+}
+
+/* ==== Payment Methods Table & Modal Fix ==== */
+
+/* Giới hạn chiều cao modal + thêm thanh cuộn dọc */
+#pmModal .modal-content {
+  max-height: 85vh;            /* không vượt quá 85% chiều cao màn hình */
+  overflow-y: auto;            /* bật thanh cuộn dọc nếu nội dung dài */
+}
+
+/* Giảm độ rộng cột Status, tăng cột Action */
+#pmTable th:nth-child(3),
+#pmTable td:nth-child(3) {
+  width: 90px !important;      /* hẹp lại */
+  text-align: center;
+  white-space: nowrap;
+}
+
+#pmTable th:nth-child(5),
+#pmTable td:nth-child(5) {
+  width: 260px !important;     /* tăng thêm để đủ cho 3 nút */
+}
+
+/* Căn chỉnh 3 nút Action cùng hàng, không wrap */
+#pmTable td:nth-child(5) {
+  display: flex;
+  flex-wrap: nowrap !important;  /* không xuống dòng */
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+/* Giới hạn kích thước nút cho gọn gàng */
+#pmTable td:nth-child(5) button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 5px 8px;
+  font-size: 13px;
+  border-radius: 6px;
+}
+
+/* Badge thu nhỏ một chút */
+.badge {
+  padding: 3px 6px;
+  font-size: 11px;
+}
+
+/* Name hẹp lại vừa đủ */
+#pmTable th:nth-child(2),
+#pmTable td:nth-child(2){
+  width:18% !important;
+}
+
+/* Status nhỏ gọn */
+#pmTable th:nth-child(3),
+#pmTable td:nth-child(3){
+  width:90px !important;
+  white-space:nowrap;
+  text-align:center;
+}
+
+/* Description rộng hơn tiêu đề, tránh header bị xuống dòng */
+#pmTable th:nth-child(4){
+  white-space:nowrap;          /* tiêu đề không xuống dòng */
+}
+#pmTable td:nth-child(4){
+  white-space:normal !important;
+  word-break:normal;
+  overflow-wrap:break-word;
+  min-width:240px;             /* rộng hơn chữ "Description" 1 chút */
+}
+
+/* Action đủ chỗ cho 3 nút trên 1 hàng */
+#pmTable th:nth-child(5),
+#pmTable td:nth-child(5){
+  width:260px !important;
+}
+#pmTable td:nth-child(5){
+  display:flex; gap:6px; align-items:center; flex-wrap:nowrap !important;
+}
+#pmTable td:nth-child(5) button{
+  padding:5px 8px; font-size:13px; border-radius:6px; white-space:nowrap;
+}
+
+/* Modal cao tối đa + có cuộn dọc nếu danh sách dài */
+#pmModal .modal-content{
+  max-height:85vh; overflow-y:auto;
+}
+
+/* Badge gọn */
+.badge{ padding:3px 6px; font-size:11px; }
+
+.btn-outline:hover {
+  background:#e9ecef;
+  border-color:#999;
+  transform:translateY(-1px);
+}
+
+/* Giữ action gọn 1 dòng, không bẻ chữ nhưng không làm cả bảng phải kéo ngang */
+/* Cách nhau 10px, căn giữa theo hàng */
+.td-actions{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+/* (tùy chọn) đồng bộ layout 2 nút */
+.td-actions > a{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.admin-table td, .admin-table th { vertical-align: middle; }
+
+/* Nếu trước đó bạn có block ép min-width cho .table-no-wrap thì không còn hiệu lực
+   vì ta đã bỏ class đó khỏi <table>. */
+
+</style>
+
+<script>
+(function(){
+  const $ = s => document.querySelector(s);
+  const modal = $('#addOrderModal');
+  const body  = $('#orderBody');
+  const total = $('#orderTotal');
+  const err   = $('#orderErr');
+
+  const fmt = n => (Number(n)||0).toLocaleString('vi-VN');
+
+  // === Mở / đóng modal ===
+  function showOrderModal(){
+    modal.style.display='flex';
+    body.innerHTML='';
+    addRow();
+    recalcTotal();
+  }
+  function hideOrderModal(){ modal.style.display='none'; }
+  window.hideOrderModal = hideOrderModal;
+  $('#addOrderBtn')?.addEventListener('click', e => { e.preventDefault(); showOrderModal(); });
+
+  // === Hàm thêm 1 dòng sản phẩm ===
+  function addRow(){
+    const tr = document.createElement('tr');
+
+    // --- Cột Product (typeahead AJAX) ---
+    const tdProd = document.createElement('td');
+    tdProd.style.border='1px solid #eee'; tdProd.style.padding='8px';
+    tdProd.innerHTML = `
+      <div class="typeahead">
+        <input type="text" class="prod-input" placeholder="Type product name..." style="min-width:320px; padding:6px 8px;">
+        <input type="hidden" name="product_id[]">
+        <div class="suggest"></div>
+        <div class="suggest-hint" style="display:none;color:#c53030;font-size:.9em;margin-top:6px"></div>
+      </div>
+    `;
+    const wrap = tdProd.querySelector('.typeahead');
+    const inp  = wrap.querySelector('.prod-input');
+    const hid  = wrap.querySelector('input[type=hidden]');
+    const sug  = wrap.querySelector('.suggest');
+    const hint = wrap.querySelector('.suggest-hint');
+    bindTypeahead(tr, inp, hid, sug, hint);
+
+    // ==== CUSTOMER TYPEAHEAD (AJAX search_users.php) ====
+    (function(){
+        const inp = document.getElementById('custSearch');
+        const hid = document.getElementById('custId');
+        const sug = inp?.parentElement.querySelector('.suggest');
+        if (!inp || !hid || !sug) return;
+
+        let timer=null, lastQ='';
+        async function fetchUsers(q){
+            try{
+            const res = await fetch('search_users.php?q='+encodeURIComponent(q), {cache:'no-store'});
+            if (!res.ok) return [];
+            return await res.json();
+            }catch(e){ console.error('User fetch error',e); return []; }
+        }
+
+        function render(list){
+            if (!list.length){ sug.style.display='none'; return; }
+            sug.innerHTML = list.map(u=>`
+            <div class="s-item" data-id="${u.id}">
+                <span class="s-name">${u.username}</span>
+            </div>`).join('');
+            sug.style.display='block';
+            sug.querySelectorAll('.s-item').forEach(it=>{
+            it.addEventListener('click',()=>{
+                hid.value = it.dataset.id;
+                inp.value = it.querySelector('.s-name').textContent;
+                sug.style.display='none';
+            });
+            });
+        }
+
+        const doQuery = async (q)=>{
+            q = q.trim();
+            if (!q){ sug.style.display='none'; return; }
+            lastQ = q;
+            const list = await fetchUsers(q);
+            if (lastQ !== q) return;
+            render(list);
+        };
+
+        const debounced = (q)=>{ clearTimeout(timer); timer=setTimeout(()=>doQuery(q),180); };
+        inp.addEventListener('input',()=>debounced(inp.value));
+        inp.addEventListener('focus',()=>debounced(inp.value));
+        document.addEventListener('click',(ev)=>{ if(!sug.contains(ev.target)&&ev.target!==inp) sug.style.display='none'; });
+    })();
+
+
+    // --- Cột Price ---
+    const tdPrice=document.createElement('td');
+    tdPrice.style.border='1px solid #eee'; tdPrice.style.padding='8px';
+    tdPrice.innerHTML = `<input name="price[]" type="number" step="0.01" min="0" value="0" style="width:120px; padding:6px 8px;">`;
+
+    // --- Cột Stock ---
+    const tdStock=document.createElement('td');
+    tdStock.style.border='1px solid #eee'; tdStock.style.padding='8px';
+    tdStock.innerHTML = `<span class="stock">0</span>`;
+
+    // --- Cột Qty (+/-) ---
+    const tdQty=document.createElement('td');
+    tdQty.style.border='1px solid #eee'; tdQty.style.padding='8px';
+    tdQty.innerHTML = `
+      <div class="qtybox">
+        <button type="button" class="qtybtn dec">−</button>
+        <input name="qty[]" type="number" min="1" value="1">
+        <button type="button" class="qtybtn inc">+</button>
+      </div>
+    `;
+    const qtyInp = tdQty.querySelector('input[name="qty[]"]');
+    const dec = tdQty.querySelector('.qtybtn.dec');
+    const inc = tdQty.querySelector('.qtybtn.inc');
+    qtyInp.addEventListener('input', ()=> limitQty(tr));
+    dec.addEventListener('click', ()=>{ let v=Number(qtyInp.value||1)-1; if(v<1)v=1; qtyInp.value=v; limitQty(tr); });
+    inc.addEventListener('click', ()=>{ let v=Number(qtyInp.value||1)+1; qtyInp.value=v; limitQty(tr); });
+
+    // --- Cột Subtotal ---
+    const tdSum=document.createElement('td');
+    tdSum.style.border='1px solid #eee'; tdSum.style.padding='8px';
+    tdSum.innerHTML = `<span class="sum">0</span>`;
+
+    // --- Cột Delete ---
+    const tdDel=document.createElement('td');
+    tdDel.style.border='1px solid #eee'; tdDel.style.padding='8px';
+    tdDel.innerHTML = `<button type="button" class="btn btn-danger">Delete</button>`;
+    tdDel.querySelector('button').addEventListener('click', ()=>{ tr.remove(); recalcTotal(); });
+
+    tr.append(tdProd, tdPrice, tdStock, tdQty, tdSum, tdDel);
+    body.appendChild(tr);
+  }
+
+  // === Gợi ý tìm sản phẩm (kèm debug & hint) ===
+  let suggestTimer=null, lastQuery='';
+  async function fetchSuggest(q){
+    try{
+      const url = 'search_products.php?q=' + encodeURIComponent(q);
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) {
+        console.error('[typeahead] HTTP', res.status, '->', url);
+        return { error: 'HTTP ' + res.status, list: [] };
+      }
+      const json = await res.json();
+      if (Array.isArray(json)) return { list: json };
+      console.error('[typeahead] Non-array JSON:', json);
+      return { error: 'Invalid JSON', list: [] };
+    }catch(err){
+      console.error('[typeahead] fetch error:', err);
+      return { error: err?.message || String(err), list: [] };
+    }
+  }
+
+  function bindTypeahead(tr, inp, hid, sug, hint){
+    const render=(list)=>{
+      if(!list.length){sug.style.display='none';return;}
+      sug.innerHTML=list.map(p=>`
+        <div class="s-item" data-id="${p.product_id}" data-price="${p.price}" data-stock="${p.remain_quantity}">
+          <span class="s-name">${p.name}</span>
+          <span class="s-meta">₫${(p.price||0).toLocaleString('vi-VN')} • stock: ${p.remain_quantity}</span>
+        </div>`).join('');
+      sug.style.display='block';
+      sug.querySelectorAll('.s-item').forEach(it=>{
+        it.addEventListener('click',()=>{
+          const id=it.dataset.id, price=Number(it.dataset.price||0), stock=Number(it.dataset.stock||0);
+          hid.value=id; inp.value=it.querySelector('.s-name').textContent;
+          tr.querySelector('input[name="price[]"]').value=price;
+          tr.querySelector('.stock').textContent=stock;
+          const qtyInp=tr.querySelector('input[name="qty[]"]');
+          if(Number(qtyInp.value||1)>stock) qtyInp.value=stock||1;
+          recalcRow(tr);
+          sug.style.display='none';
+          hint.style.display='none';
+        });
+      });
+    };
+
+    const doQuery=async(q)=>{
+      q=q.trim();
+      if(!q){sug.style.display='none'; hint.style.display='none'; return;}
+      lastQuery=q;
+      const {list, error} = await fetchSuggest(q);
+      if (lastQuery!==q) return; // user đã gõ query mới
+      if (error){
+        hint.textContent = 'Không tải được gợi ý (' + error + '). Mở Console để xem chi tiết.';
+        hint.style.display='block';
+        sug.style.display='none';
+        return;
+      }
+      if (!list.length){
+        hint.textContent = 'Không tìm thấy sản phẩm khớp "'+q+'".';
+        hint.style.display='block';
+        sug.style.display='none';
+        return;
+      }
+      hint.style.display='none';
+      render(list);
+    };
+
+    const debounced=(q)=>{ clearTimeout(suggestTimer); suggestTimer=setTimeout(()=>doQuery(q), 200); };
+    inp.addEventListener('input',()=>debounced(inp.value));
+    inp.addEventListener('focus',()=>debounced(inp.value));
+    document.addEventListener('click',(ev)=>{ if(!sug.contains(ev.target) && ev.target!==inp) sug.style.display='none'; });
+  }
+
+  // === Tính toán & giới hạn ===
+  function limitQty(tr){
+    const stock=Number(tr.querySelector('.stock').textContent||0);
+    const inp=tr.querySelector('input[name="qty[]"]');
+    let v=Number(inp.value||1);
+    if(stock>0&&v>stock)v=stock;
+    if(v<1)v=1;
+    inp.value=v; recalcRow(tr);
+  }
+  function recalcRow(tr){
+    const qty=Number(tr.querySelector('input[name="qty[]"]').value||0);
+    const price=Number(tr.querySelector('input[name="price[]"]').value||0);
+    tr.querySelector('.sum').textContent=(qty*price||0).toLocaleString('vi-VN');
+    recalcTotal();
+  }
+  
+  function recalcTotal(){
+    let subtotal = 0;
+    body.querySelectorAll('.sum').forEach(s => {
+      // '1.234.567' -> 1234567
+      const raw = String(s.textContent||'0').replace(/\./g,'').replace(',','.');
+      subtotal += Number(raw)||0;
+    });
+    const vat   = Math.round(subtotal * 0.10);
+    const totalV = subtotal + vat;
+
+    // Fill UI
+    const elSub = document.getElementById('orderSubtotal');
+    const elVAT = document.getElementById('orderVAT');
+    const elTot = document.getElementById('orderTotal');
+
+    if (elSub) elSub.textContent = fmt(subtotal);
+    if (elVAT) elVAT.textContent = fmt(vat);
+    if (elTot) elTot.textContent = fmt(totalV);
+  }
+
+
+  // === Sự kiện form ===
+  $('#btnAddOrderRow')?.addEventListener('click', addRow);
+  $('#addOrderForm')?.addEventListener('submit', async function(e){
+    e.preventDefault();
+    err.style.display='none'; err.textContent='';
+    if(!body.querySelector('tr')){err.textContent='Please add at least one product.';err.style.display='block';return;}
+    const fd=new FormData(this);
+    try{
+      const res=await fetch('add_order.php',{method:'POST',body:fd});
+      const data=await res.json();
+      if(!data.success)throw new Error(data.message||'Cannot create order');
+      hideOrderModal();
+      location.href='manage-orders.php?created='+data.order_id;
+    }catch(ex){
+      err.textContent=ex.message||'Error';
+      err.style.display='block';
+    }
+  });
+
+  // ---- Debug nhanh: nhấn Alt+O để mở modal test ----
+  document.addEventListener('keydown', (e)=>{
+    if (e.altKey && e.key.toLowerCase()==='o') showOrderModal();
+  });
+})();
+</script>
+
+<script>
+function openPmModal(){ document.getElementById('pmModal').style.display='block'; loadPm(); }
+function closePmModal(){ document.getElementById('pmModal').style.display='none'; }
+function resetPmForm(){ pm_id.value=''; pm_name.value=''; pm_desc.value=''; }
+const pmTableBody = document.querySelector('#pmTable tbody');
+const pmErr = document.getElementById('pmErr');
+const pm_id = document.getElementById('pm_id');
+const pm_name = document.getElementById('pm_name');
+const pm_desc = document.getElementById('pm_desc');
+
+async function loadPm(){
+  pmErr.style.display='none';
+  try{
+    const res = await fetch('payment_methods_api.php?action=list',{cache:'no-store'});
+    const data = await res.json();
+    pmTableBody.innerHTML = Array.isArray(data) ? data.map(row => {
+    const active = Number(row.is_active) === 1; // ép kiểu CHẮC CHẮN
+    return `
+      <tr>
+        <td>#${row.payment_method_id}</td>
+        <td>${escapeHtml(row.method_name||'')}</td>
+        <td>
+          <span class="badge ${active ? 'badge--active':'badge--hidden'}">
+            ${active ? 'Active' : 'Hidden'}
+          </span>
+        </td>
+        <td>${escapeHtml(row.description||'')}</td>
+        <td style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <button class="edit-status-btn" type="button"
+            onclick='editPm(${row.payment_method_id},
+                            ${JSON.stringify(row.method_name).replace(/</g,"\\u003c")},
+                            ${JSON.stringify(row.description||"").replace(/</g,"\\u003c")})'>
+            <i class="fas fa-pen"></i> Edit
+          </button>
+          <button class="modal-btn ${active ? 'cancel-btn':'save-btn'}" type="button"
+            onclick="togglePm(${row.payment_method_id}, ${active ? 0 : 1})">
+            ${active ? '<i class="fas fa-eye-slash"></i> Hide' : '<i class="fas fa-eye"></i> Show'}
+          </button>
+          <button class="modal-btn cancel-btn" type="button"
+            onclick="delPm(${row.payment_method_id})">
+            <i class="fas fa-trash"></i> Delete
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('') : '<tr><td colspan="5">No methods</td></tr>';
+
+  }catch(e){
+    pmErr.textContent = 'Không tải được danh sách phương thức: ' + (e.message||e);
+    pmErr.style.display='block';
+  }
+}
+
+async function refreshOrderPaymentSelect(){
+  const paySel = document.getElementById('ordPayment');
+  if(!paySel) return;
+
+  const res = await fetch('payment_methods_api.php?action=list', {cache:'no-store'});
+  const rows = await res.json();
+  const actives = Array.isArray(rows) ? rows.filter(r => Number(r.is_active) === 1) : [];
+
+  paySel.innerHTML =
+    '<option value="">-- Select method --</option>' +
+    actives.map(r => `<option value="${r.payment_method_id}">${escapeHtml(r.method_name||'')}</option>`).join('');
+}
+
+function editPm(id, name, desc){ pm_id.value=id; pm_name.value=name; pm_desc.value=desc||''; }
+
+async function savePm(ev){
+  ev.preventDefault();
+  pmErr.style.display='none';
+  const fd = new FormData(document.getElementById('pmForm'));
+  const action = pm_id.value ? 'update' : 'create';
+  const res = await fetch('payment_methods_api.php?action='+action, { method:'POST', body: fd });
+  const data = await res.json();
+  if(!data.success){ pmErr.textContent = data.message||'Lỗi lưu dữ liệu'; pmErr.style.display='block'; return false; }
+  resetPmForm(); loadPm(); return false;
+}
+
+async function delPm(id){
+  if(!confirm('Xóa phương thức #' + id + ' ? (Sẽ bị chặn nếu đã được dùng trong đơn hàng)')) return;
+  pmErr.style.display='none';
+  const fd = new FormData(); fd.append('payment_method_id', id);
+  const res = await fetch('payment_methods_api.php?action=delete', { method:'POST', body: fd });
+  const data = await res.json();
+  if(!data.success){ pmErr.textContent = data.message||'Không thể xóa'; pmErr.style.display='block'; return; }
+  loadPm();
+}
+
+async function togglePm(id, active){
+  pmErr.style.display='none';
+  const fd = new FormData();
+  fd.append('payment_method_id', id);
+  fd.append('is_active', active);
+  const res = await fetch('payment_methods_api.php?action=toggle', { method:'POST', body: fd });
+  const data = await res.json();
+  if(!data.success){ pmErr.textContent = 'Không đổi được trạng thái'; pmErr.style.display='block'; return; }
+  await loadPm();
+  // cập nhật select Payment trong modal tạo đơn (chỉ hiển thị active)
+  await refreshOrderPaymentSelect();
+}
+
+
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[m]))}
+</script>
+
+<script>
+// ===== Payment Methods Manager (API in same folder) =====
+(() => {
+  const API_PM = 'payment_methods_api.php'; // <<— trỏ đúng file cùng thư mục
+
+  // Elements
+  const pm = {
+    modal:  document.getElementById('pmModal'),
+    open:   document.getElementById('managePmBtn'),
+    close:  document.getElementById('pmClose'),
+    close2: document.getElementById('pmClose2'),
+    tbody:  document.getElementById('pmTbody'),
+    form:   document.getElementById('pmForm'),
+    id:     document.getElementById('pmId'),
+    name:   document.getElementById('pmName'),
+    desc:   document.getElementById('pmDesc'),
+    save:   document.getElementById('pmSaveBtn'),
+    reset:  document.getElementById('pmResetBtn'),
+    err:    document.getElementById('pmErr'),
+  };
+  if (!pm.open) return; // trang không có nút thì bỏ qua
+
+  const showPm = () => { pm.modal.style.display = 'flex'; pm.err.classList.add('hidden'); list(); };
+  const hidePm = () => { pm.modal.style.display = 'none'; clearForm(); };
+
+  pm.open.addEventListener('click', showPm);
+  pm.close.addEventListener('click', hidePm);
+  pm.close2.addEventListener('click', hidePm);
+  pm.modal.addEventListener('click', (e) => { if (e.target === pm.modal) hidePm(); });
+
+  function clearForm() {
+    pm.id.value = '';
+    pm.name.value = '';
+    pm.desc.value = '';
+  }
+
+  function setError(msg) {
+    pm.err.textContent = msg || 'Error';
+    pm.err.classList.remove('hidden');
+  }
+
+  // ---- API helpers (list/create/update/delete) ----
+  async function apiList() {
+    const r = await fetch(`${API_PM}?action=list`, {cache:'no-store'});
+    return r.json();
+  }
+  async function apiCreate(fd) {
+    const r = await fetch(`${API_PM}?action=create`, {method:'POST', body: fd});
+    return r.json();
+  }
+  async function apiUpdate(fd) {
+    const r = await fetch(`${API_PM}?action=update`, {method:'POST', body: fd});
+    return r.json();
+  }
+  async function apiDelete(id) {
+    const fd = new FormData(); fd.append('payment_method_id', id);
+    const r = await fetch(`${API_PM}?action=delete`, {method:'POST', body: fd});
+    return r.json();
+  }
+
+  // ---- Render list & wire events ----
+  async function list() {
+    try {
+      pm.tbody.innerHTML = '<tr><td colspan="3">Loading...</td></tr>';
+      const rows = await apiList();
+      if (!Array.isArray(rows)) throw new Error(rows?.message || 'Cannot load methods.');
+
+      pm.tbody.innerHTML = rows.map(x => `
+        <tr>
+          <td><strong>${escapeHtml(x.method_name || '')}</strong></td>
+          <td>${escapeHtml(x.description || '')}</td>
+          <td>
+            <button class="btn" data-edit="${x.payment_method_id}">Edit</button>
+            <button class="btn btn-danger" data-del="${x.payment_method_id}">Delete</button>
+          </td>
+        </tr>
+      `).join('') || '<tr><td colspan="3">No methods</td></tr>';
+
+      // Bind edit/delete
+      pm.tbody.querySelectorAll('[data-edit]').forEach(b=>{
+        b.addEventListener('click', () => {
+          const id = b.getAttribute('data-edit');
+          const tr = b.closest('tr');
+          pm.id.value   = id;
+          pm.name.value = tr.children[0].innerText.trim();
+          pm.desc.value = tr.children[1].innerText.trim();
+          pm.name.focus();
+        });
+      });
+      pm.tbody.querySelectorAll('[data-del]').forEach(b=>{
+        b.addEventListener('click', async () => {
+          const id = b.getAttribute('data-del');
+          if (!confirm('Delete this method?')) return;
+          const res = await apiDelete(id);
+          if (!res.success) { setError(res.message); return; }
+          await list();
+          // nếu modal tạo đơn đang mở, cập nhật lại select “Payment”
+          refreshOrderPaymentSelect();
+        });
+      });
+
+      pm.err.classList.add('hidden');
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  // ---- Create / Update submit ----
+  pm.form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    pm.err.classList.add('hidden');
+
+    const fd = new FormData(pm.form);
+    try {
+      const isUpdate = !!pm.id.value;
+      const res = isUpdate ? await apiUpdate(fd) : await apiCreate(fd);
+      if (!res.success) { setError(res.message); return; }
+      clearForm();
+      await list();
+      // đồng bộ select Payment trong modal tạo đơn
+      refreshOrderPaymentSelect();
+    } catch (e2) {
+      setError(e2.message);
+    }
+  });
+
+  pm.reset.addEventListener('click', clearForm);
+
+  // ---- Đồng bộ lại select “Payment” của modal Add Order sau khi CRUD PM ----
+  async function refreshOrderPaymentSelect() {
+    const paySel = document.getElementById('ordPayment');
+    if (!paySel) return;
+    const rows = await apiList(); // rows gồm cả is_active
+    const actives = Array.isArray(rows) ? rows.filter(x => Number(x.is_active) === 1) : [];
+    paySel.innerHTML =
+      '<option value="">-- Select method --</option>' +
+      actives.map(x => `<option value="${x.payment_method_id}">${escapeHtml(x.method_name||'')}</option>`).join('');
+  }
+
+  // small util
+  function escapeHtml(s){return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+})();
+</script>
 
 </body>
 
