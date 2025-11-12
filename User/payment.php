@@ -2,6 +2,28 @@
 // Place all PHP logic at the top before any HTML output
 include 'header.php';
 
+// Lấy danh sách PM đang active
+$pms_rs = $connect->query("
+  SELECT payment_method_id, method_name, is_active
+  FROM payment_methods
+  WHERE is_active = 1
+  ORDER BY method_name
+");
+$PMS = $pms_rs ? $pms_rs->fetch_all(MYSQLI_ASSOC) : [];
+
+// Map tên -> type đơn giản (nếu bạn chưa có cột type/enum trong DB)
+function pm_type_from_name($name){
+    $n = strtolower(trim($name));
+    if (strpos($n, 'cash') !== false || strpos($n, 'tiền mặt') !== false) return 'cash';
+    if (strpos($n, 'credit') !== false || strpos($n, 'tín dụng') !== false) return 'credit';
+    if (strpos($n, 'atm') !== false) return 'atm';
+    // mở rộng nếu sau này có Momo/ZaloPay/Chuyển khoản...
+    if (strpos($n, 'momo') !== false) return 'momo';
+    if (strpos($n, 'zalo') !== false) return 'zalopay';
+    if (strpos($n, 'bank') !== false || strpos($n,'chuyển khoản')!==false) return 'bank';
+    return 'other';
+}
+
 if (!isset($_SESSION['user_id'])) {
     echo "<script>
         showNotification('Vui lòng đăng nhập để tiếp tục.','warning');
@@ -14,6 +36,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $order_id = $_SESSION['current_order_id'];
         $payment_method = mysqli_real_escape_string($connect, $_POST['payment_method']);
+        // Kiểm tra PM có tồn tại & còn active
+        $check_stmt = mysqli_prepare($connect, "
+        SELECT payment_method_id, method_name, is_active
+        FROM payment_methods
+        WHERE payment_method_id = ? AND is_active = 1
+        ");
+        mysqli_stmt_bind_param($check_stmt, "i", $payment_method);
+        mysqli_stmt_execute($check_stmt);
+        $pm_rs = mysqli_stmt_get_result($check_stmt);
+        $pm_row = mysqli_fetch_assoc($pm_rs);
+        if (!$pm_row) {
+            throw new Exception("Phương thức thanh toán không hợp lệ hoặc đã bị ẩn.");
+        }
+
+        // Xác định loại để validate fields
+        $pm_type = pm_type_from_name($pm_row['method_name']);
+
+        // Validate theo loại
+        if ($pm_type === 'credit') {
+            if (empty($_POST['credit_number']) || empty($_POST['credit_name']) ||
+                empty($_POST['credit_expiry']) || empty($_POST['credit_cvv'])) {
+                throw new Exception("Vui lòng điền đầy đủ thông tin thẻ tín dụng.");
+            }
+            $payment_details = [
+                'card_holder' => $_POST['credit_name'],
+                'card_number' => substr(preg_replace('/\D/','', $_POST['credit_number']), -4)
+            ];
+        } elseif ($pm_type === 'atm' || $pm_type === 'bank') {
+            if (empty($_POST['atm_number']) || empty($_POST['atm_bank']) || empty($_POST['atm_name'])) {
+                throw new Exception("Vui lòng điền đầy đủ thông tin thẻ/ATM.");
+            }
+            $payment_details = [
+                'bank_name' => $_POST['atm_bank'],
+                'account_name' => $_POST['atm_name'],
+                'account_number' => substr(preg_replace('/\D/','', $_POST['atm_number']), -4)
+            ];
+        }
+        // các loại khác (cash/momo/zalopay/other) không yêu cầu thêm gì
+
         $distance = floatval($_POST['distance']);
         $shipping_fee = floatval($_POST['shipping_fee']);
 
@@ -1189,33 +1250,91 @@ body.dark-theme .payment-top-item {
                         <form id="payment-form" method="POST" action="payment.php">
                             <h3>Chọn phương thức thanh toán</h3>
                     
-                            <!-- Credit Card Payment -->
-                            <div class="payment-method-item">
-                                <input name="payment_method" type="radio" id="credit-card-option" value="2">
-                                <label for="credit-card-option">
-                                    <i class="fas fa-credit-card"></i>
-                                    Thanh toán bằng thẻ tín dụng
-                                </label>
-                                <div class="payment-details" id="credit-details">
-                                    <div class="form-group">
-                                        <input type="text" class="input-text" name="credit_number"
-                                            placeholder="Số thẻ tín dụng" pattern="[0-9]{16}" maxlength="16">
-                                        <span class="error-message"></span>
+                            <div class="payment-methods-container">
+                                <form id="payment-form" method="POST" action="payment.php">
+                                    <h3>Chọn phương thức thanh toán</h3>
+
+                                    <?php if (empty($PMS)): ?>
+                                    <div class="payment-method-item" style="border-color:#ffc107">
+                                        Hiện chưa có phương thức thanh toán khả dụng. Vui lòng quay lại sau.
                                     </div>
-                                    <div class="form-group">
-                                        <input type="text" class="input-text" name="credit_name"
-                                            placeholder="Họ tên trên thẻ">
+                                    <?php else: ?>
+                                    <?php foreach($PMS as $idx => $pm): 
+                                        $pmId   = (int)$pm['payment_method_id'];
+                                        $pmName = htmlspecialchars($pm['method_name']);
+                                        $pmType = pm_type_from_name($pm['method_name']); // credit | atm | cash | ...
+                                        $checked = $idx === 0 ? 'checked' : ''; // tick mặc định phương thức đầu
+                                    ?>
+                                    <div class="payment-method-item">
+                                        <input 
+                                        name="payment_method" 
+                                        type="radio" 
+                                        id="pm-<?= $pmId ?>" 
+                                        value="<?= $pmId ?>" 
+                                        data-type="<?= $pmType ?>" 
+                                        <?= $checked ?>
+                                        >
+                                        <label for="pm-<?= $pmId ?>">
+                                        <i class="fas fa-money-check"></i>
+                                        <?= $pmName ?>
+                                        </label>
+
+                                        <!-- vùng chi tiết theo loại -->
+                                        <div class="payment-details pm-details"
+                                            data-for-type="<?= $pmType ?>" 
+                                            style="display: none;">
+                                        <?php if ($pmType === 'credit'): ?>
+                                            <div class="form-group">
+                                                <input type="text" class="input-text" name="credit_number" 
+                                                    placeholder="Số thẻ tín dụng" pattern="[0-9]{16}" maxlength="16">
+                                                <span class="error-message"></span>
+                                            </div>
+                                            <div class="form-group">
+                                                <input type="text" class="input-text" name="credit_name" placeholder="Họ tên trên thẻ">
+                                            </div>
+                                            <div class="form-group">
+                                                <input type="text" class="input-text" name="credit_expiry"
+                                                    placeholder="Ngày hết hạn (MM/YY)" pattern="(0[1-9]|1[0-2])\/([0-9]{2})">
+                                            </div>
+                                            <div class="form-group">
+                                                <input type="text" class="input-text" name="credit_cvv" placeholder="CVV" pattern="[0-9]{3}" maxlength="3">
+                                            </div>
+                                        <?php elseif ($pmType === 'atm' || $pmType==='bank'): ?>
+                                            <div class="form-group">
+                                                <input type="text" class="input-text" name="atm_number" placeholder="Số thẻ / Số tài khoản">
+                                            </div>
+                                            <div class="form-group">
+                                                <input type="text" class="input-text" name="atm_bank" placeholder="Tên ngân hàng">
+                                            </div>
+                                            <div class="form-group">
+                                                <input type="text" class="input-text" name="atm_name" placeholder="Tên chủ tài khoản">
+                                            </div>
+                                        <?php else: ?>
+                                            <!-- cash/momo/khác: mặc định không cần thêm thông tin -->
+                                            <div class="security-note"><i class="fas fa-info-circle"></i>
+                                                Không cần nhập thêm thông tin cho phương thức này.
+                                            </div>
+                                        <?php endif; ?>
+                                        </div>
                                     </div>
-                                    <div class="form-group">
-                                        <input type="text" class="input-text" name="credit_expiry"
-                                            placeholder="Ngày hết hạn (MM/YY)" pattern="(0[1-9]|1[0-2])\/([0-9]{2})">
+                                    <?php endforeach; ?>
+                                    <?php endif; ?>
+
+                                    <!-- Hidden inputs -->
+                                    <input type="hidden" name="distance" id="distance-input" value="0">
+                                    <input type="hidden" name="shipping_fee" id="shipping-fee-input" value="0">
+
+                                    <div class="payment-content-right-button">
+                                    <a href="delivery.php" class="return-btn">
+                                        <i class="fas fa-arrow-left"></i> Trở về
+                                    </a>
+                                    <button type="submit" class="pay-btn">
+                                        <i class="fas fa-money-check"></i> Thanh toán
+                                    </button>
                                     </div>
-                                    <div class="form-group">
-                                        <input type="text" class="input-text" name="credit_cvv"
-                                            placeholder="Mã CVV" pattern="[0-9]{3}" maxlength="3">
-                                    </div>
+                                </form>
                                 </div>
-                            </div>
+
                     
                             <!-- ATM Payment -->
                             <div class="payment-method-item">
@@ -1389,89 +1508,28 @@ body.dark-theme .payment-top-item {
         document.addEventListener('DOMContentLoaded', initMap);
     </script>
     <script>
-        // Add this JavaScript
-        // Show/hide payment details based on selection
-        document.querySelectorAll('input[name="payment_method"]').forEach(radio => {
-            radio.addEventListener('change', function () {
-                // Hide all payment details
-                document.querySelectorAll('.payment-details').forEach(detail => {
-                    detail.style.display = 'none';
-                });
+    // Hiển thị phần chi tiết theo radio được chọn (dựa vào data-type)
+    function refreshPmDetails(){
+    // Ẩn tất cả
+    document.querySelectorAll('.pm-details').forEach(d => d.style.display = 'none');
+    // Tìm radio đang chọn
+    const checked = document.querySelector('input[name="payment_method"]:checked');
+    if (!checked) return;
+    const type = checked.dataset.type || 'other';
+    // Hiện block có data-for-type tương ứng
+    document.querySelectorAll(`.pm-details[data-for-type="${type}"]`)
+        .forEach(d => d.style.display = 'block');
+    }
 
-                // Show selected payment details
-                if (this.value !== 'cash') {
-                    const details = document.getElementById(`${this.value}-details`);
-                    if (details) {
-                        details.style.display = 'block';
-                    }
-                }
-            });
-        });
-
-        function validatePaymentForm(event) {
-            event.preventDefault();
-
-            // Get selected payment method
-            const selectedMethod = document.querySelector('input[name="payment_method"]:checked').value;
-
-            // If cash payment, proceed without validation
-            if (selectedMethod === 'cash') {
-                return submitPaymentForm();
-            }
-
-            // Get all required fields for selected method
-            const requiredFields = document.querySelectorAll(`[data-required="${selectedMethod}"]`);
-            let isValid = true;
-
-            requiredFields.forEach(field => {
-                // Remove previous error styling
-                field.classList.remove('error');
-
-                // Check if empty
-                if (!field.value.trim()) {
-                    field.classList.add('error');
-                    isValid = false;
-                }
-
-                // Check pattern if exists
-                if (field.pattern && !new RegExp(field.pattern).test(field.value)) {
-                    field.classList.add('error');
-                    isValid = false;
-                }
-            });
-
-            if (!isValid) {
-                showNotification('Vui lòng điền đầy đủ thông tin thanh toán','warning');
-                return false;
-            }
-
-            return submitPaymentForm();
-        }
-
-        function submitPaymentForm() {
-            const form = document.getElementById('payment-form');
-            const formData = new FormData(form);
-        
-            fetch('payment.php', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    showNotification(data.message, 'success');
-                    window.location.href = 'review.php';
-                } else {
-                    showNotification(data.message, 'error');
-                }
-            })
-            .catch(error => {
-                showNotification('Có lỗi xảy ra, vui lòng thử lại', 'error');
-            });
-        
-            return false; // Prevent default form submission
-        }
+    document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('input[name="payment_method"]').forEach(r => {
+        r.addEventListener('change', refreshPmDetails);
+    });
+    // gọi lần đầu
+    refreshPmDetails();
+    });
     </script>
+
     <script>
         function onlyNumbers(event) {
             return /[0-9]/.test(event.key);
