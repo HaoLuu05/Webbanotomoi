@@ -26,11 +26,12 @@ $PROS = $pros_rs ? $pros_rs->fetch_all(MYSQLI_ASSOC) : [];
 function buildFilterQuery($filters)
 {
     // Base query (giữ shipping_address để còn sort theo Location)
-  $query = "SELECT 
+    $base_query = "SELECT 
               o.order_id, o.order_date, o.order_status, o.total_amount, o.shipping_address,
-              u.username, u.full_name
+              u.username, u.full_name, u.phone_num, u.email
             FROM orders o 
             JOIN users_acc u ON o.user_id = u.id";
+
     $where_clauses = [];
     $params = [];
     $types = "";
@@ -54,12 +55,14 @@ function buildFilterQuery($filters)
         $types .= "s";
     }
 
-    // Location sorting
-    $order_by = !empty($filters['sort_location']) ?
-        "o.shipping_address ASC" :
-        "o.order_date DESC";
+    // Sort
+    $order_by = (!empty($filters['sort']) && $filters['sort'] === 'location')
+        ? "o.shipping_address ASC"
+        : ((!empty($filters['sort']) && $filters['sort'] === 'date_asc')
+            ? "o.order_date ASC"
+            : "o.order_date DESC");
 
-    // Combine where clauses
+    // Combine
     $query = $base_query;
     if (!empty($where_clauses)) {
         $query .= " WHERE " . implode(" AND ", $where_clauses);
@@ -68,6 +71,7 @@ function buildFilterQuery($filters)
 
     return ['query' => $query, 'params' => $params, 'types' => $types];
 }
+
 // Process status update first
 if (isset($_POST['update_status']) && isset($_POST['order_id'])) {
     try {
@@ -1088,289 +1092,6 @@ if (isset($_SESSION['notification'])) {
         }
     </script>
 
-    <!-- ===== Backdrop & Modal ===== -->
-<div id="orderBackdrop" class="order-backdrop"></div>
-<div id="orderModal" class="order-modal" role="dialog" aria-modal="true" aria-labelledby="orderModalTitle">
-  <div class="order-card">
-    <div class="order-header">
-      <h3 id="orderModalTitle" style="margin:0">Add New Order</h3>
-      <button type="button" class="btn btn-outline" id="btnCloseOrderModal">✕</button>
-    </div>
-    <div class="order-body">
-      <!-- Form -->
-      <div class="order-row">
-        <label>Customer</label>
-        <select id="ordUser" required>
-          <option value="">-- Select customer --</option>
-        </select>
-
-        <label>Payment</label>
-        <select id="ordPayment" required>
-          <option value="">-- Select method --</option>
-        </select>
-      </div>
-
-      <table class="order-table" id="ordTable">
-        <thead>
-          <tr>
-            <th style="width:45%">Product</th>
-            <th>Price</th>
-            <th>Stock</th>
-            <th>Qty</th>
-            <th>Subtotal</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="ordBody"></tbody>
-        <tfoot>
-          <tr>
-            <td colspan="4" style="text-align:right">Total</td>
-            <td><span id="ordTotal">0</span></td>
-            <td></td>
-          </tr>
-        </tfoot>
-      </table>
-
-      <div class="order-row" style="margin-top:10px">
-        <button type="button" class="btn" id="btnAddRow">+ Add product</button>
-      </div>
-
-      <div id="ordError" class="order-row hidden" style="color:#c53030"></div>
-    </div>
-    <div class="order-footer">
-      <button type="button" class="btn btn-outline" id="btnCancelOrder">Cancel</button>
-      <button type="button" class="btn btn-primary" id="btnSubmitOrder">Create Order</button>
-    </div>
-  </div>
-</div>
-
-<script>
-(() => {
-  const $ = s => document.querySelector(s);
-  const el = {
-    open: $('#btnAddOrder'),
-    modal: $('#orderModal'),
-    backdrop: $('#orderBackdrop'),
-    closeX: $('#btnCloseOrderModal'),
-    cancel: $('#btnCancelOrder'),
-    submit: $('#btnSubmitOrder'),
-    addRow: $('#btnAddRow'),
-    user: $('#ordUser'),
-    pay: $('#ordPayment'),
-    body: $('#ordBody'),
-    total: $('#ordTotal'),
-    error: $('#ordError')
-  };
-
-  const fmt = n => (n||0).toLocaleString('vi-VN');
-
-  function showModal() {
-    el.backdrop.style.display = 'block';
-    el.modal.style.display = 'flex';
-    el.error.classList.add('hidden');
-    loadOptionsIfNeeded().then(() => {
-      el.body.innerHTML = '';
-      addRow();
-      recalcTotal();
-    });
-  }
-  function hideModal() {
-    el.backdrop.style.display = 'none';
-    el.modal.style.display = 'none';
-  }
-
-  el.open?.addEventListener('click', e => { e.preventDefault(); showModal(); });
-  el.closeX.addEventListener('click', hideModal);
-  el.cancel.addEventListener('click', hideModal);
-  el.backdrop.addEventListener('click', hideModal);
-
-  // ------- Load options (users, payments, products) -------
-  let CACHED = null;
-  async function loadOptionsIfNeeded(){
-    if (CACHED) return;
-    const res = await fetch('ajax/options_for_order.php');
-    if (!res.ok) throw new Error('Cannot load options');
-    CACHED = await res.json(); // {users:[{id,username}], payments:[{id,name}], products:[{product_id,name,price,remain_quantity}]}
-
-    // fill users
-    el.user.innerHTML = '<option value="">-- Select customer --</option>' + CACHED.users.map(u => (
-      `<option value="${u.id}">${u.username}</option>`
-    )).join('');
-
-    // fill payments
-    el.pay.innerHTML = '<option value="">-- Select method --</option>' + CACHED.payments.map(p => (
-      `<option value="${p.id}">${p.name}</option>`
-    )).join('');
-  }
-
-  // ------- Rows -------
-  function addRow(){
-    const tr = document.createElement('tr');
-    const tdProd = document.createElement('td');
-    tdProd.style.border='1px solid #eee'; tdProd.style.padding='8px';
-
-    // Ô nhập tên + hidden id + dropdown
-    tdProd.innerHTML = `
-    <div class="typeahead">
-        <input type="text" class="prod-input" placeholder="Type product name..." style="min-width:320px; padding:6px 8px;">
-        <input type="hidden" name="product_id[]">
-        <div class="suggest"></div>
-    </div>
-    `;
-
-    const tdPrice = document.createElement('td');
-    tdPrice.innerHTML = `<input type="number" step="0.01" min="0" value="0">`;
-
-    const tdStock = document.createElement('td');
-    tdStock.innerHTML = `<span class="stock">0</span>`;
-
-    const tdQty = document.createElement('td');
-    tdQty.innerHTML = `<input type="number" min="1" value="1">`;
-    tdQty.querySelector('input').addEventListener('input', () => recalcRow(tr));
-
-    const tdSum = document.createElement('td');
-    tdSum.innerHTML = `<span class="sum">0</span>`;
-
-    const tdDel = document.createElement('td');
-    tdDel.innerHTML = `<button type="button" class="btn btn-danger">Delete</button>`;
-    tdDel.querySelector('button').addEventListener('click', () => { tr.remove(); recalcTotal(); });
-
-    tr.append(tdProd, tdPrice, tdStock, tdQty, tdSum, tdDel);
-    el.body.appendChild(tr);
-
-    const wrap = tdProd.querySelector('.typeahead');
-    const inp  = wrap.querySelector('.prod-input');
-    const hid  = wrap.querySelector('input[type=hidden]');
-    const sug  = wrap.querySelector('.suggest');
-    inp.addEventListener('input', () => showSuggest(tr, inp, hid, sug));
-    inp.addEventListener('focus', () => showSuggest(tr, inp, hid, sug));
-    document.addEventListener('click', (ev)=>{
-    if (!wrap.contains(ev.target)) sug.style.display='none';
-});
-
-  }
-
-    function limitQty(tr){
-    const stock = Number(tr.querySelector('.stock').textContent||0);
-    const inp = tr.querySelector('input[name="qty[]"]');
-    let v = Number(inp.value||1);
-    if (stock>0 && v>stock) v = stock;
-    if (v<1) v = 1;
-    inp.value = v;
-    recalcRow(tr);
-    }
-
-    function recalcRow(tr){
-    const qty   = Number(tr.querySelector('input[name="qty[]"]').value||0);
-    const price = Number(tr.querySelector('input[name="price[]"]').value||0);
-    tr.querySelector('.sum').textContent = (qty*price||0).toLocaleString('vi-VN');
-    recalcTotal();
-    }
-
-
-  function onChangeProd(e){
-    const opt = e.target.selectedOptions[0];
-    const tr = e.target.closest('tr');
-    const price = opt ? Number(opt.dataset.price||0) : 0;
-    const stock = opt ? Number(opt.dataset.stock||0) : 0;
-    tr.querySelector('td:nth-child(2) input').value = price;
-    tr.querySelector('.stock').textContent = stock;
-    recalcRow(tr);
-  }
-
-  function recalcRow(tr){
-    const price = Number(tr.querySelector('td:nth-child(2) input').value||0);
-    const stock = Number(tr.querySelector('.stock').textContent||0);
-    const qtyInp = tr.querySelector('td:nth-child(4) input');
-    let qty = Number(qtyInp.value||0);
-    if (qty > stock) { qty = stock; qtyInp.value = stock; }
-    tr.querySelector('.sum').textContent = fmt(price * qty);
-    recalcTotal();
-  }
-
-  function recalcTotal(){
-    let g = 0;
-    el.body.querySelectorAll('.sum').forEach(s => {
-      g += Number((s.textContent||'0').replace(/\./g,'').replace(',','.'));
-    });
-    el.total.textContent = fmt(g);
-  }
-
-  el.addRow.addEventListener('click', addRow);
-
-  const PRODUCTS = <?=json_encode($PROS, JSON_UNESCAPED_UNICODE)?>;
-    // Map theo id & hàm tìm kiếm đơn giản
-    const P_BY_ID = new Map(PRODUCTS.map(p => [String(p.product_id), p]));
-
-    function searchProducts(q){
-    q = (q||'').trim().toLowerCase();
-    if (!q) return PRODUCTS.slice(0,8);
-    return PRODUCTS.filter(p => p.name.toLowerCase().includes(q)).slice(0,8);
-    }
-
-    function showSuggest(tr, inp, hid, sug){
-    const list = searchProducts(inp.value);
-    if (!list.length){ sug.style.display='none'; return; }
-    sug.innerHTML = list.map(p => `
-        <div class="s-item" data-id="${p.product_id}">
-        <span class="s-name">${p.name}</span>
-        <span class="s-meta">₫${(p.price||0).toLocaleString('vi-VN')} • stock: ${p.remain_quantity}</span>
-        </div>
-    `).join('');
-    sug.style.display='block';
-
-    sug.querySelectorAll('.s-item').forEach(it=>{
-        it.addEventListener('click', ()=>{
-        const id = it.getAttribute('data-id');
-        const prod = P_BY_ID.get(String(id));
-        hid.value = id;
-        inp.value = prod.name;
-        // auto fill price + stock
-        tr.querySelector('td:nth-child(2) input[name="price[]"]').value = Number(prod.price||0);
-        tr.querySelector('.stock').textContent = Number(prod.remain_quantity||0);
-        // reset qty nếu vượt stock
-        const qtyInp = tr.querySelector('td:nth-child(4) input[name="qty[]"]');
-        if (Number(qtyInp.value||1) > prod.remain_quantity) qtyInp.value = prod.remain_quantity || 1;
-        recalcRow(tr);
-        sug.style.display='none';
-        });
-    });
-    }
-
-  // ------- Submit -------
-  el.submit.addEventListener('click', async () => {
-    el.error.classList.add('hidden');
-    const user_id = Number(el.user.value||0);
-    const payment_method_id = Number(el.pay.value||0);
-    const items = [];
-    el.body.querySelectorAll('tr').forEach(tr => {
-      const sel = tr.querySelector('select');
-      const pid = Number(sel?.value||0);
-      const price = Number(tr.querySelector('td:nth-child(2) input').value||0);
-      const qty = Number(tr.querySelector('td:nth-child(4) input').value||0);
-      if (pid>0 && qty>0) items.push({product_id:pid, price, qty});
-    });
-    if (!user_id || !payment_method_id || items.length===0) {
-      el.error.textContent = 'Please select customer, payment method and at least 1 product.'; el.error.classList.remove('hidden'); return;
-    }
-
-    const res = await fetch('ajax/create_order.php', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({user_id, payment_method_id, items})
-    });
-    const data = await res.json().catch(()=>({success:false,message:'Invalid response'}));
-    if (!data.success) {
-      el.error.textContent = data.message || 'Cannot create order.'; el.error.classList.remove('hidden'); return;
-    }
-    // Done
-    hideModal();
-    // Refresh list (hoặc điều hướng)
-    location.href = 'manage-orders.php?created='+data.order_id;
-  });
-})();
-</script>
-
 <!-- ===== Modal: Add New Order ===== -->
 <div id="addOrderModal" style="display:none; position:fixed; inset:0; z-index:9999; align-items:center; justify-content:center;">
   <div style="position:absolute; inset:0; background:rgba(0,0,0,.4)" onclick="hideOrderModal()"></div>
@@ -1413,8 +1134,18 @@ if (isset($_SESSION['notification'])) {
         <tbody id="orderBody"></tbody>
         <tfoot>
           <tr>
-            <td colspan="4" style="text-align:right; border:1px solid #eee; padding:8px;">Total</td>
-            <td style="border:1px solid #eee; padding:8px;"><span id="orderTotal">0</span></td>
+            <td colspan="4" style="text-align:right; border:1px solid #eee; padding:8px;">Subtotal</td>
+            <td style="border:1px solid #eee; padding:8px;"><span id="orderSubtotal">0</span></td>
+            <td style="border:1px solid #eee; padding:8px;"></td>
+          </tr>
+          <tr>
+            <td colspan="4" style="text-align:right; border:1px solid #eee; padding:8px;">VAT (10%)</td>
+            <td style="border:1px solid #eee; padding:8px;"><span id="orderVAT">0</span></td>
+            <td style="border:1px solid #eee; padding:8px;"></td>
+          </tr>
+          <tr>
+            <td colspan="4" style="text-align:right; border:1px solid #eee; padding:8px; font-weight:700;">Total</td>
+            <td style="border:1px solid #eee; padding:8px; font-weight:700;"><span id="orderTotal">0</span></td>
             <td style="border:1px solid #eee; padding:8px;"></td>
           </tr>
         </tfoot>
@@ -1599,7 +1330,21 @@ if (isset($_SESSION['notification'])) {
 }
 
 /* Giữ action gọn 1 dòng, không bẻ chữ nhưng không làm cả bảng phải kéo ngang */
-.td-actions { white-space: nowrap; }
+/* Cách nhau 10px, căn giữa theo hàng */
+.td-actions{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+/* (tùy chọn) đồng bộ layout 2 nút */
+.td-actions > a{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .admin-table td, .admin-table th { vertical-align: middle; }
 
 /* Nếu trước đó bạn có block ép min-width cho .table-no-wrap thì không còn hiệu lực
@@ -1614,6 +1359,8 @@ if (isset($_SESSION['notification'])) {
   const body  = $('#orderBody');
   const total = $('#orderTotal');
   const err   = $('#orderErr');
+
+  const fmt = n => (Number(n)||0).toLocaleString('vi-VN');
 
   // === Mở / đóng modal ===
   function showOrderModal(){
@@ -1825,13 +1572,27 @@ if (isset($_SESSION['notification'])) {
     tr.querySelector('.sum').textContent=(qty*price||0).toLocaleString('vi-VN');
     recalcTotal();
   }
+  
   function recalcTotal(){
-    let g=0;
-    document.querySelectorAll('#orderBody .sum').forEach(s=>{
-      g+=Number((s.textContent||'0').replace(/\./g,'').replace(',','.'));
+    let subtotal = 0;
+    body.querySelectorAll('.sum').forEach(s => {
+      // '1.234.567' -> 1234567
+      const raw = String(s.textContent||'0').replace(/\./g,'').replace(',','.');
+      subtotal += Number(raw)||0;
     });
-    total.textContent=(g||0).toLocaleString('vi-VN');
+    const vat   = Math.round(subtotal * 0.10);
+    const totalV = subtotal + vat;
+
+    // Fill UI
+    const elSub = document.getElementById('orderSubtotal');
+    const elVAT = document.getElementById('orderVAT');
+    const elTot = document.getElementById('orderTotal');
+
+    if (elSub) elSub.textContent = fmt(subtotal);
+    if (elVAT) elVAT.textContent = fmt(vat);
+    if (elTot) elTot.textContent = fmt(totalV);
   }
+
 
   // === Sự kiện form ===
   $('#btnAddOrderRow')?.addEventListener('click', addRow);

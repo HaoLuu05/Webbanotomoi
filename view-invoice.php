@@ -13,11 +13,12 @@ $query = "
     SELECT 
         o.*,
         u.username, u.full_name, u.email, u.phone_num, u.address,
-        p.car_name, p.price, p.image_link, p.color, p.year_manufacture, 
+        p.car_name, p.image_link, p.color, p.year_manufacture, 
         p.seat_number, p.fuel_name,
         ct.type_name,
         pm.method_name,
-        od.quantity
+        od.quantity,
+        od.price AS unit_price
     FROM orders o
     JOIN users_acc u ON o.user_id = u.id
     JOIN order_details od ON o.order_id = od.order_id
@@ -26,6 +27,7 @@ $query = "
     JOIN payment_methods pm ON o.payment_method_id = pm.payment_method_id
     WHERE o.order_id = ?
 ";
+
 
 $stmt = mysqli_prepare($connect, $query);
 mysqli_stmt_bind_param($stmt, "i", $order_id);
@@ -487,28 +489,17 @@ $order = $orderData[0]; // Basic order info
                     <span class="status-badge status-<?= str_replace(' ', '-', strtolower($order['order_status'])) ?>">
                         <?php
                         switch ($order['order_status']) {
-                            case 'initiated':
-                                echo 'Initiated';
-                                break;
-                            case 'is pending':
-                                echo 'Is pending';
-                                break;
-                            case 'is confirmed':
-                                echo 'Is confirmed';
-                                break;
-                            case 'is delivering':
-                                echo 'Is delivering';
-                                break;
-                            case 'completed':
-                                echo 'Completed';
-                                break;
-                            case 'cancelled':
-                                echo 'Cancelled';
-                                break;
-                            default:
-                                echo $order['order_status'];
+                            case 'initiated':      echo 'Initiated'; break;
+                            case 'is pending':     echo 'Is pending'; break;
+                            case 'is confirmed':   echo 'Is confirmed'; break;
+                            case 'is delivering':  echo 'Is delivering'; break;
+                            case 'delivered':      echo 'Delivered'; break;
+                            case 'completed':      echo 'Completed'; break;
+                            case 'cancelled':      echo 'Cancelled'; break;
+                            default:               echo htmlspecialchars($order['order_status']);
                         }
                         ?>
+                    </span>
                 </div>
                 <div class="info-item">
                     <strong>Payment Method:</strong>
@@ -517,10 +508,6 @@ $order = $orderData[0]; // Basic order info
                 <div class="info-item">
                     <strong>Shipping Address:</strong>
                     <span><?php echo htmlspecialchars($order['shipping_address']); ?></span>
-                </div>
-                <div class="info-item">
-                    <strong>Distance:</strong>
-                    <span><?php echo htmlspecialchars($order['distance']); ?></span>
                 </div>
             </div>
         </section>
@@ -562,8 +549,8 @@ $order = $orderData[0]; // Basic order info
                                     <small>Fuel: <?php echo htmlspecialchars($item['fuel_name']); ?></small>
                                 </td>
                                 <td><?php echo $item['quantity']; ?></td>
-                                <td><?php echo number_format($item['price'], 0, ',', '.'); ?> VND</td>
-                                <td><?php echo number_format($item['price'] * $item['quantity'], 0, ',', '.'); ?> VND</td>
+                                <td><?php echo number_format($item['unit_price'], 0, ',', '.'); ?> VND</td>
+                                <td><?php echo number_format($item['unit_price'] * $item['quantity'], 0, ',', '.'); ?> VND</td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
