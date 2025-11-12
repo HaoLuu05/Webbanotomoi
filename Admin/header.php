@@ -675,6 +675,14 @@ a[href*="products"] .nav-count {
     color: white;
 }
 
+a[href*="best-seller"] .nav-count {
+    background: #e5e903ff;
+    color: white;
+}
+a[href*="inventory"] .nav-count {
+    background: #f88e04ff;
+    color: white;
+}
 /* Hover effect */
 .navbar a:hover .nav-count {
     transform: scale(1.2) translateY(-2px);
@@ -734,7 +742,16 @@ a[href*="products"] .nav-count {
         <span>Manage Products</span>
         <span class="nav-count"><?php echo $counts['products']; ?></span>
     </a>
-  
+             <a href="best-seller.php">
+        <i class="fa-solid fa-star"></i>
+        <span>Best Sellers</span>
+    <span class="nav-count"><?php echo $counts['products']; ?></span>
+</a>
+    <a href="manage-inventory.php">
+        <i class="fa-solid fa-star"></i>
+        <span>Inventory Statistics</span>
+    <span class="nav-count"><?php echo $counts['products']; ?></span>
+</a>
         <div class="nav-user">
         <span class="user-greeting">
             <i class="fa-regular fa-user"></i>
