@@ -26,21 +26,20 @@ try {
     require_once __DIR__ . '/../User/connect.php'; // phải tạo ra $connect (mysqli)
 
     // --- Normalize DB handle to $connect (không tạo file mới) ---
-  if (!isset($connect) || !($connect instanceof mysqli)) {
-      if (isset($conn) && $conn instanceof mysqli) {
-          $connect = $conn;
-      } elseif (isset($mysqli) && $mysqli instanceof mysqli) {
-          $connect = $mysqli;
-      } elseif (isset($link) && $link instanceof mysqli) {
-          $connect = $link;
-      } else {
-          throw new RuntimeException('User/connect.php không cung cấp biến kết nối mysqli.');
-      }
-  }
-  if (method_exists($connect, 'set_charset')) {
-      $connect->set_charset('utf8mb4');
-  }
-
+    if (!isset($connect) || !($connect instanceof mysqli)) {
+        if (isset($conn) && $conn instanceof mysqli) {
+            $connect = $conn;
+        } elseif (isset($mysqli) && $mysqli instanceof mysqli) {
+            $connect = $mysqli;
+        } elseif (isset($link) && $link instanceof mysqli) {
+            $connect = $link;
+        } else {
+            throw new RuntimeException('User/connect.php không cung cấp biến kết nối mysqli.');
+        }
+    }
+    if (method_exists($connect, 'set_charset')) {
+        $connect->set_charset('utf8mb4');
+    }
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         http_response_code(405);
@@ -69,7 +68,24 @@ try {
         throw new RuntimeException('Items array length mismatch.');
     }
 
-    // Làm sạch items
+    // ===== CHECK CUSTOMER TỒN TẠI TRONG users_acc =====
+    // Chỉ cho phép tạo đơn với user đã có trong bảng users_acc và đang activated
+    $chkUser = $connect->prepare("
+        SELECT id, username 
+        FROM users_acc 
+        WHERE id = ? AND status = 'activated'
+        LIMIT 1
+    ");
+    $chkUser->bind_param('i', $user_id);
+    $chkUser->execute();
+    $userRs = $chkUser->get_result();
+    $chkUser->close();
+
+    if (!$userRs->num_rows) {
+        throw new RuntimeException('Customer not found or not activated.');
+    }
+
+    // ===== LÀM SẠCH ITEMS =====
     $items = [];
     for ($i = 0; $i < count($product_ids); $i++) {
         $pid = (int)$product_ids[$i];
@@ -93,13 +109,22 @@ try {
     // ===== TRANSACTION =====
     $connect->begin_transaction();
 
-    // (Optional) kiểm tra tồn kho
-    $stockStmt = $connect->prepare("SELECT remain_quantity FROM products WHERE product_id = ?");
+    // (Optional) kiểm tra tồn kho + tồn tại product
+    // => đảm bảo product_id đều có trong bảng products và không bị hidden
+    $stockStmt = $connect->prepare("
+        SELECT remain_quantity 
+        FROM products 
+        WHERE product_id = ? 
+          AND (status IS NULL OR status <> 'hidden')
+        LIMIT 1
+    ");
     foreach ($items as $it) {
         $stockStmt->bind_param('i', $it['product_id']);
         $stockStmt->execute();
         $rs = $stockStmt->get_result();
-        if (!$rs->num_rows) throw new RuntimeException('Product not found: ID ' . $it['product_id']);
+        if (!$rs->num_rows) {
+            throw new RuntimeException('Product not found or hidden: ID ' . $it['product_id']);
+        }
         $remain = (int)$rs->fetch_assoc()['remain_quantity'];
         if ($remain > 0 && $it['qty'] > $remain) {
             throw new RuntimeException('Insufficient stock for product ID ' . $it['product_id']);
@@ -159,7 +184,12 @@ try {
     $updProd->close();
 
     // Auto mark soldout
-    $connect->query("UPDATE products SET status='soldout' WHERE remain_quantity <= 0 AND (status IS NULL OR status <> 'soldout')");
+    $connect->query("
+        UPDATE products 
+        SET status='soldout' 
+        WHERE remain_quantity <= 0 
+          AND (status IS NULL OR status <> 'soldout')
+    ");
 
     $connect->commit();
 

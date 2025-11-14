@@ -1104,43 +1104,63 @@ if (isset($_SESSION['notification'])) {
     </div>
 
     <form id="addOrderForm" method="post">
-      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
-        <label>Customer</label>
-        <div class="typeahead" style="min-width:320px">
-        <input type="text" id="custSearch" placeholder="Type customer username..." style="min-width:320px; padding:6px 8px;">
-        <input type="hidden" name="user_id" id="custId">
-        <div class="suggest"></div>
-      </div>
-
-
-        <label>Payment</label>
-        <select id="ordPayment" name="payment_method_id" required style="min-width:220px; padding:6px 8px;">
-          <option value="">-- Select method --</option>
-          <?php foreach($PMS as $pm): ?>
-            <option value="<?=$pm['id']?>"><?=htmlspecialchars($pm['name'])?></option>
-          <?php endforeach; ?>
-        </select>
-
-        <!-- (ADD) Address + distance/ship info -->
-        <label style="margin-left:8px">Address</label>
-        <input id="orderAddress" name="shipping_address" placeholder="Enter delivery address..."
-              style="min-width:380px; padding:6px 8px"  required>
-
-        <button type="button" class="btn" id="btnCalcShip"
-                title="Geocode & route to get distance/ship">Calculate</button>
-
-        <!-- compact status / info -->
-        <div id="shipCalcInfo" style="display:flex;gap:14px;align-items:center">
-          <small class="price-info">Price: <b>100.000 VND/km</b></small>
-          <small>Distance: <b><span id="distanceInfo">0</span> km</b></small>
-          <small>Shipping fee: <b><span id="shipFeeInfo">0</span> ₫</b></small>
+      <div class="order-top-row">
+        <!-- Customer -->
+        <div class="order-field order-field--customer">
+          <label>Customer</label>
+          <div class="typeahead cust-wrapper invalid">
+            <input
+              type="text"
+              id="custSearch"
+              placeholder="Search & choose customer..."
+              autocomplete="off"
+            >
+            <input type="hidden" name="user_id" id="custId">
+            <div class="suggest"></div>
+            <div class="cust-helper">
+              You must <b>choose a customer from the suggestions.</b>
+            </div>
+          </div>
         </div>
 
-        <!-- hidden inputs to submit -->
+        <!-- Payment (nằm ngay kế bên) -->
+        <div class="order-field order-field--payment">
+          <label>Payment</label>
+          <select id="ordPayment" name="payment_method_id" required>
+            <option value="">-- Select method --</option>
+            <?php foreach($PMS as $pm): ?>
+              <option value="<?=$pm['id']?>"><?=htmlspecialchars($pm['name'])?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+      </div>
+
+      <!-- Address riêng 1 hàng bên dưới -->
+      <div class="order-address-row">
+        <label>Address</label>
+        <div class="address-line">
+          <input id="orderAddress" name="shipping_address"
+                placeholder="Enter delivery address..." required>
+
+          <button type="button" class="btn" id="btnCalcShip"
+                  title="Geocode & route to get distance/ship">
+            Calculate
+          </button>
+
+          <div id="shipCalcInfo">
+            <small class="price-info">Price: <b>100.000 VND/km</b></small>
+            <small>Distance: <b><span id="distanceInfo">0</span> km</b></small>
+            <small>Shipping fee: <b><span id="shipFeeInfo">0</span> ₫</b></small>
+          </div>
+        </div>
+
+        <!-- hidden inputs -->
         <input type="hidden" id="distance-input" name="distance" value="0">
         <input type="hidden" id="shipping-fee-input" name="shipping_fee" value="0">
         <input type="hidden" id="shipping-address-input" name="shipping_address_hidden" value="">
       </div>
+
+
 
       <table style="width:100%; border-collapse:collapse;">
         <thead>
@@ -1200,6 +1220,94 @@ if (isset($_SESSION['notification'])) {
 
 <style>
 .typeahead{position:relative}
+/* ==== Customer select state ==== */
+.tag-required{
+  display:inline-block;
+  font-size:11px;
+  padding:2px 6px;
+  border-radius:999px;
+  background:#fff3cd;
+  color:#856404;
+  border:1px solid #ffeeba;
+}
+
+.cust-wrapper{
+  position:relative;
+}
+
+/* ==== Top row Add Order modal ==== */
+.order-top-row{
+  display:flex;
+  flex-wrap:wrap;
+  gap:16px;
+  align-items:flex-start;
+  margin-bottom:12px;
+}
+
+.order-field{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+
+.order-field label{
+  font-weight:500;
+}
+
+/* Customer chiếm rộng, Payment hẹp hơn, Address chiếm cả dòng dưới */
+.order-field--customer{ flex:1 1 320px; }
+.order-field--payment{  flex:0 0 240px; }
+.order-field--address{  flex:1 1 100%; }
+
+/* Input/select trong 3 field nhìn đồng bộ */
+.order-field .cust-wrapper input,
+.order-field select,
+.order-field--address input[type="text"],
+.order-field--address input:not([type="hidden"]){
+  min-width:0;
+  padding:6px 8px;
+}
+
+/* Hàng Address: input + nút + info trên cùng một dòng */
+.address-line{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+.address-line input{
+  flex:1 1 260px;
+}
+
+#shipCalcInfo{
+  display:flex;
+  gap:12px;
+  align-items:center;
+}
+
+.cust-wrapper input{
+  transition:border-color .2s, box-shadow .2s, background-color .2s;
+}
+
+/* Chưa chọn customer -> đỏ nhạt */
+.cust-wrapper.invalid input{
+  border-color:#e55353 !important;
+  background:#fff5f5;
+}
+
+/* Đã chọn từ list -> viền xanh */
+.cust-wrapper.valid input{
+  border-color:#28a745 !important;
+  box-shadow:0 0 0 2px rgba(40,167,69,.15);
+}
+
+.cust-helper{
+  font-size:12px;
+  color:#6c757d;
+  margin-top:4px;
+}
+
 .typeahead .suggest{
   position:absolute;left:0;right:0;top:100%;
   background:#fff;border:1px solid #e5e5e5;border-top:none;
@@ -1428,6 +1536,82 @@ if (isset($_SESSION['notification'])) {
 
 #addOrderModal .modal-backdrop { z-index: 0; }
 #addOrderModal .modal-panel    { z-index: 1; position: relative; }
+
+/* ==== Top row Add Order modal ==== */
+.order-top-row{
+  display:flex;
+  flex-wrap:wrap;
+  gap:16px;
+  align-items:flex-start;   /* TOP-align => label Customer & Payment thẳng hàng */
+  margin-bottom:12px;
+}
+
+.order-field{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+
+.order-field label{
+  font-weight:500;
+}
+
+/* Customer rộng, Payment hẹp hơn nhưng vẫn cùng 1 hàng */
+.order-field--customer{ flex:0 0 430px; }
+.order-field--payment{  flex:0 0 260px; }
+
+/* Address chiếm cả dòng riêng */
+.order-address-row{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  margin-bottom:12px;
+}
+
+.address-line{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+/* Cho input Address rộng ra, ưu tiên chiếm chỗ */
+.address-line input{
+  flex:1 1 520px;
+  padding:6px 8px;          /* giống Customer */
+  height:auto;              /* để browser tự tính */
+  line-height:normal;       /* đồng bộ */
+}
+
+
+
+/* Đưa phần Price / Distance / Shipping fee xuống dòng dưới,
+   không ép chung hàng với ô Address để address đỡ bị hẹp */
+#shipCalcInfo{
+  display:flex;
+  gap:12px;
+  align-items:center;
+  flex:1 0 100%;     /* luôn nằm trên 1 dòng riêng phía dưới */
+}
+
+
+/* Customer input dài hơn + dropdown gợi ý đúng bề ngang input */
+.order-field--customer .cust-wrapper{
+  display:inline-block;
+  width:380px;          /* độ dài bạn muốn cho ô Customer */
+}
+
+.order-field--customer .cust-wrapper input{
+  width:100%;
+  padding:6px 8px;
+}
+
+.order-field--customer .cust-wrapper .suggest{
+  left:0;
+  right:auto;
+  width:100%;           /* đúng bằng ô input */
+}
+
 </style>
 
 <script>
@@ -1439,6 +1623,57 @@ if (isset($_SESSION['notification'])) {
   const err   = $('#orderErr');
   const addrInp = document.getElementById('orderAddress');
   const shipAddrHidden = document.getElementById('shipping-address-input');
+
+    function resetOrderModal(){
+      const form = document.getElementById('addOrderForm');
+      if (form) form.reset();
+
+      // reset customer
+      const custWrap = document.querySelector('.cust-wrapper');
+      const custId   = document.getElementById('custId');
+      const custInp  = document.getElementById('custSearch');
+      const custSug  = custWrap?.querySelector('.suggest');
+
+      if (custId)  custId.value = '';
+      if (custInp) custInp.value = '';
+      if (custWrap){
+        custWrap.classList.remove('valid');
+        custWrap.classList.add('invalid');
+      }
+      if (custSug){
+        custSug.innerHTML = '';
+        custSug.style.display = 'none';
+      }
+
+      // reset shipping
+      const idsZeroText = ['distanceInfo','orderDistance','shipFeeInfo','orderShipFee'];
+      idsZeroText.forEach(id=>{
+        const el = document.getElementById(id);
+        if (el) el.textContent = '0';
+      });
+
+      const idsZeroVal = ['distance-input','shipping-fee-input'];
+      idsZeroVal.forEach(id=>{
+        const el = document.getElementById(id);
+        if (el) el.value = 0;
+      });
+
+      const addr = document.getElementById('orderAddress');
+      const addrHidden = document.getElementById('shipping-address-input');
+      if (addr) addr.value = '';
+      if (addrHidden) addrHidden.value = '';
+
+      // xóa hết dòng sản phẩm, thêm lại 1 dòng trống
+      body.innerHTML = '';
+      addRow();
+      recalcTotal();
+
+      // ẩn lỗi
+      if (err){
+        err.textContent = '';
+        err.style.display = 'none';
+      }
+    }
 
   if (addrInp && shipAddrHidden) {
     // khi gõ cũng sync sang input ẩn
@@ -1459,21 +1694,18 @@ if (isset($_SESSION['notification'])) {
   const fmt = n => (Number(n)||0).toLocaleString('vi-VN');
 
   // === Mở / đóng modal ===
-  function showOrderModal(){
-    modal.style.display='flex';
-     // reset ship info
-    document.getElementById('orderAddress').value = '';
-    document.getElementById('shipping-address-input').value = '';
-    document.getElementById('distance-input').value = 0;
-    document.getElementById('shipping-fee-input').value = 0;
-    document.getElementById('distanceInfo').textContent = '0';
-    document.getElementById('shipFeeInfo').textContent = '0';
-    document.getElementById('orderDistance').textContent = '0';
-    document.getElementById('orderShipFee').textContent = '0';
-    body.innerHTML='';
-    addRow();
-    recalcTotal();
-  }
+    function showOrderModal(){
+      resetOrderModal();          // mỗi lần mở là trạng thái mới
+      modal.style.display = 'flex';
+    }
+    window.showOrderModal = showOrderModal;
+
+    function hideOrderModal(){
+      modal.style.display = 'none';
+      resetOrderModal();          // đóng bằng X hay click nền đều reset sạch
+    }
+    window.hideOrderModal = hideOrderModal;
+
   window.showOrderModal = showOrderModal;   // <= thêm dòng này
   function hideOrderModal(){ modal.style.display='none'; }
   window.hideOrderModal = hideOrderModal;
@@ -1486,6 +1718,22 @@ if (isset($_SESSION['notification'])) {
   if(!body.querySelector('tr')){
     err.textContent='Please add at least one product.';
     err.style.display='block';
+    return;
+  }
+
+  // Bắt buộc phải chọn customer từ danh sách (custId > 0)
+  const custIdInput = document.getElementById('custId');
+  const custInput   = document.getElementById('custSearch');
+  const custWrap    = document.querySelector('.cust-wrapper');
+
+  if (!custIdInput || !(+custIdInput.value > 0)) {
+    err.textContent = 'Please choose a customer from the suggestions.';
+    err.style.display = 'block';
+    if (custWrap){
+      custWrap.classList.remove('valid');
+      custWrap.classList.add('invalid');
+    }
+    custInput?.focus();
     return;
   }
 
@@ -1557,53 +1805,94 @@ if (isset($_SESSION['notification'])) {
     const hint = wrap.querySelector('.suggest-hint');
     bindTypeahead(tr, inp, hid, sug, hint);
 
-    // ==== CUSTOMER TYPEAHEAD (AJAX search_users.php) ====
-    (function(){
-        const inp = document.getElementById('custSearch');
-        const hid = document.getElementById('custId');
-        const sug = inp?.parentElement.querySelector('.suggest');
-        if (!inp || !hid || !sug) return;
+        // ==== CUSTOMER TYPEAHEAD (AJAX search_users.php) ====
+        (function(){
+            const inp  = document.getElementById('custSearch');
+            const hid  = document.getElementById('custId');
+            const wrap = document.querySelector('.cust-wrapper');
+            const sug  = wrap?.querySelector('.suggest');
+            const helper = wrap?.querySelector('.cust-helper');
+            if (!inp || !hid || !sug || !wrap) return;
 
-        let timer=null, lastQ='';
-        async function fetchUsers(q){
-            try{
-            const res = await fetch('search_users.php?q='+encodeURIComponent(q), {cache:'no-store'});
-            if (!res.ok) return [];
-            return await res.json();
-            }catch(e){ console.error('User fetch error',e); return []; }
-        }
+            function setCustomerState(selected){
+                wrap.classList.toggle('valid', !!selected);
+                wrap.classList.toggle('invalid', !selected);
+                if (!selected && helper){
+                    helper.innerHTML = 'You must <b>choose a customer from the suggestions</b>.';
+                } else if (helper){
+                    helper.textContent = 'Customer selected from list.';
+                }
+            }
 
-        function render(list){
-            if (!list.length){ sug.style.display='none'; return; }
-            sug.innerHTML = list.map(u=>`
-            <div class="s-item" data-id="${u.id}">
-                <span class="s-name">${u.username}</span>
-            </div>`).join('');
-            sug.style.display='block';
-            sug.querySelectorAll('.s-item').forEach(it=>{
-            it.addEventListener('click',()=>{
-                hid.value = it.dataset.id;
-                inp.value = it.querySelector('.s-name').textContent;
-                sug.style.display='none';
+            let timer=null, lastQ='';
+
+            async function fetchUsers(q){
+                try{
+                    const res = await fetch('search_users.php?q='+encodeURIComponent(q), {cache:'no-store'});
+                    if (!res.ok) return [];
+                    return await res.json();
+                }catch(e){
+                    console.error('User fetch error',e);
+                    return [];
+                }
+            }
+
+            function render(list){
+                if (!list.length){
+                    sug.style.display='none';
+                    setCustomerState(false);
+                    return;
+                }
+                sug.innerHTML = list.map(u=>`
+                    <div class="s-item" data-id="${u.id}">
+                        <span class="s-name">${u.username}</span>
+                        <span class="s-meta">${u.full_name || ''}</span>
+                    </div>`).join('');
+                sug.style.display='block';
+                sug.querySelectorAll('.s-item').forEach(it=>{
+                    it.addEventListener('click',()=>{
+                        hid.value = it.dataset.id;
+                        inp.value = it.querySelector('.s-name').textContent;
+                        sug.style.display='none';
+                        setCustomerState(true);
+                    });
+                });
+            }
+
+            const doQuery = async (q)=>{
+                q = q.trim();
+                if (!q){
+                    sug.style.display='none';
+                    hid.value = '';
+                    setCustomerState(false);
+                    return;
+                }
+                lastQ = q;
+                const list = await fetchUsers(q);
+                if (lastQ !== q) return;
+                render(list);
+            };
+
+            const debounced = (q)=>{ clearTimeout(timer); timer=setTimeout(()=>doQuery(q),180); };
+
+            // Gõ lại -> coi như chưa chọn
+            inp.addEventListener('input',()=>{
+                hid.value = '';
+                setCustomerState(false);
+                debounced(inp.value);
             });
+
+            inp.addEventListener('focus',()=>debounced(inp.value));
+
+            document.addEventListener('click',(ev)=>{
+                if(!sug.contains(ev.target) && ev.target!==inp){
+                    sug.style.display='none';
+                }
             });
-        }
 
-        const doQuery = async (q)=>{
-            q = q.trim();
-            if (!q){ sug.style.display='none'; return; }
-            lastQ = q;
-            const list = await fetchUsers(q);
-            if (lastQ !== q) return;
-            render(list);
-        };
-
-        const debounced = (q)=>{ clearTimeout(timer); timer=setTimeout(()=>doQuery(q),180); };
-        inp.addEventListener('input',()=>debounced(inp.value));
-        inp.addEventListener('focus',()=>debounced(inp.value));
-        document.addEventListener('click',(ev)=>{ if(!sug.contains(ev.target)&&ev.target!==inp) sug.style.display='none'; });
-    })();
-
+            // Khởi tạo trạng thái ban đầu
+            setCustomerState(false);
+        })();
 
     // --- Cột Price ---
     const tdPrice=document.createElement('td');
@@ -1803,25 +2092,41 @@ function haversineKm([lon1,lat1],[lon2,lat2]){
 }
 
 
-// 3) Geocode qua proxy PHP để tránh CORS/blocked
 async function geocodeAddress(addr){
-  const u = new URL('geocode.php', location.href);
+  // CHỖ NÀY: chỉnh cho đúng path thực tế của file
+  const u = new URL('geocode.php', location.href); // hoặc '../geocode.php'
   u.searchParams.set('q', addr);
+
+  console.log('[geocode] URL gọi tới:', u.toString());
 
   let res;
   try{
-    res = await fetchWithTimeout(u.toString(), { headers:{ 'Accept':'application/json' } }, 10000);
+    res = await fetchWithTimeout(u.toString(), { headers:{ 'Accept':'application/json' } }, 12000);
   }catch(e){
-    throw new Error('Geocode timeout/blocked');
+    console.error('[geocode] fetch error:', e);
+    throw new Error('Không gọi được geocode.php (bị chặn hoặc server không phản hồi).');
   }
-  if(!res.ok) throw new Error('Geocode HTTP '+res.status);
+
+  if(!res.ok){
+    let msg = 'HTTP ' + res.status;
+    try{
+      const t = await res.text();
+      console.log('[geocode] error body:', t);
+      const j = JSON.parse(t);
+      if (j && j.error) msg = j.error;
+    }catch(_){}
+    throw new Error('Geocode lỗi: ' + msg);
+  }
 
   const j = await res.json();
-  if(!Array.isArray(j) || !j.length) throw new Error('Address not found');
+  if(!Array.isArray(j) || !j.length) {
+    throw new Error('Không tìm thấy địa chỉ phù hợp.');
+  }
 
   const { lat, lon } = j[0];
   return [parseFloat(lon), parseFloat(lat)]; // [lon, lat]
 }
+
 
 // 4) Route distance (OSRM) – single definition + fallback
 async function getRouteDistanceKm(start, end){
