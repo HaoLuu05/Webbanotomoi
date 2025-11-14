@@ -45,6 +45,19 @@ if (mysqli_num_rows($result) === 0) {
 // Fetch all order data
 $orderData = mysqli_fetch_all($result, MYSQLI_ASSOC);
 $order = $orderData[0]; // Basic order info
+// ===== Amounts (use order values, fallback to computed) =====
+$itemsSubtotal = 0.0;
+foreach ($orderData as $it) {
+    $itemsSubtotal += (float)$it['unit_price'] * (int)$it['quantity'];
+}
+
+$subtotal  = is_null($order['expected_total_amount']) ? $itemsSubtotal : (float)$order['expected_total_amount'];
+$vat       = is_null($order['VAT'])                   ? round($subtotal * 0.10, 2) : (float)$order['VAT'];
+$shipping  = is_null($order['shipping_fee'])          ? 0.00                       : (float)$order['shipping_fee'];
+$total     = is_null($order['total_amount'])          ? ($subtotal + $vat + $shipping) : (float)$order['total_amount'];
+
+function vnd($n){ return number_format((float)$n, 0, ',', '.') . ' VND'; }
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -173,16 +186,17 @@ $order = $orderData[0]; // Basic order info
 </style>
 <style>
     .invoice-container {
-        // ...existing code...
+        /* override dark theme */ 
         background: rgba(20, 30, 48, 0.7);
         border: 1px solid rgba(100, 181, 246, 0.2);
         color: #e0e0e0;
     }
 
     .invoice-header {
-        // ...existing code...
+        /* override dark theme */
         border-bottom: 2px solid rgba(100, 181, 246, 0.2);
     }
+
 
     .invoice-header h1 {
         color: #64B5F6;
@@ -509,6 +523,10 @@ $order = $orderData[0]; // Basic order info
                     <strong>Shipping Address:</strong>
                     <span><?php echo htmlspecialchars($order['shipping_address']); ?></span>
                 </div>
+                <div class="info-item">
+                    <strong>Distance:</strong>
+                    <span><?php echo number_format((float)$order['distance'], 2, ',', '.'); ?> km</span>
+                </div>
             </div>
         </section>
 
@@ -564,23 +582,23 @@ $order = $orderData[0]; // Basic order info
             <div class="summary-grid">
                 <div class="summary-item">
                     <span>Subtotal:</span>
-                    <span><?php echo number_format($order['expected_total_amount'], 0, ',', '.'); ?> VND</span>
+                    <span><?php echo vnd($subtotal); ?></span>
                 </div>
                 <div class="summary-item">
                     <span>VAT (10%):</span>
-                    <span><?php echo number_format($order['VAT'], 0, ',', '.'); ?>
-                        VND</span>
+                    <span><?php echo vnd($vat); ?></span>
                 </div>
                 <div class="summary-item">
                     <span>Shipping Fee:</span>
-                    <span><?php echo number_format($order['shipping_fee'], 0, ',', '.'); ?> VND</span>
+                    <span><?php echo vnd($shipping); ?></span>
                 </div>
                 <div class="summary-item total">
                     <strong>Total Amount:</strong>
-                    <strong><?php echo number_format($order['total_amount'], 0, ',', '.'); ?> VND</strong>
+                    <strong><?php echo vnd($total); ?></strong>
                 </div>
             </div>
         </section>
+
 
         <!-- Action bar -->
         <div class="invoice-actions">

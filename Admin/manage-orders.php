@@ -1046,8 +1046,10 @@ if (isset($_SESSION['notification'])) {
                   <input type="text" name="description" id="pm_desc">
                 </div>
               </div>
-              <div class="filter-buttons" style="justify-content:flex-end">
-                <button class="filter-btn" type="submit"><i class="fas fa-save"></i> Save</button>
+              <div class="filter-buttons">
+                <button class="filter-btn" type="submit">
+                  <i class="fas fa-save"></i> Update
+                </button>
                 <button class="reset-btn" type="button" onclick="resetPmForm()">Clear</button>
               </div>
             </form>
@@ -1058,11 +1060,11 @@ if (isset($_SESSION['notification'])) {
             <div class="table-scroll">
               <table class="admin-table" id="pmTable">
                 <colgroup>
-                  <col style="width:80px">      <!-- ID -->
-                  <col style="width:18%">       <!-- Name (co lại một chút) -->
-                  <col style="width:90px">      <!-- Status (nhỏ gọn) -->
-                  <col>                         <!-- Description (auto, rộng ra) -->
-                  <col style="width:260px">     <!-- Action (đủ 3 nút 1 hàng) -->
+                  <col style="width:70px">    <!-- ID -->
+                  <col style="width:24%">     <!-- Name -->
+                  <col style="width:100px">   <!-- Status -->
+                  <col>                       <!-- Description (auto) -->
+                  <col style="width:200px">   <!-- Action (gọn lại) -->
                 </colgroup>
                 <thead>
                   <tr>
@@ -1112,12 +1114,32 @@ if (isset($_SESSION['notification'])) {
 
 
         <label>Payment</label>
-        <select name="payment_method_id" required style="min-width:220px; padding:6px 8px;">
+        <select id="ordPayment" name="payment_method_id" required style="min-width:220px; padding:6px 8px;">
           <option value="">-- Select method --</option>
           <?php foreach($PMS as $pm): ?>
             <option value="<?=$pm['id']?>"><?=htmlspecialchars($pm['name'])?></option>
           <?php endforeach; ?>
         </select>
+
+        <!-- (ADD) Address + distance/ship info -->
+        <label style="margin-left:8px">Address</label>
+        <input id="orderAddress" name="shipping_address" placeholder="Enter delivery address..."
+              style="min-width:380px; padding:6px 8px"  required>
+
+        <button type="button" class="btn" id="btnCalcShip"
+                title="Geocode & route to get distance/ship">Calculate</button>
+
+        <!-- compact status / info -->
+        <div id="shipCalcInfo" style="display:flex;gap:14px;align-items:center">
+          <small class="price-info">Price: <b>100.000 VND/km</b></small>
+          <small>Distance: <b><span id="distanceInfo">0</span> km</b></small>
+          <small>Shipping fee: <b><span id="shipFeeInfo">0</span> ₫</b></small>
+        </div>
+
+        <!-- hidden inputs to submit -->
+        <input type="hidden" id="distance-input" name="distance" value="0">
+        <input type="hidden" id="shipping-fee-input" name="shipping_fee" value="0">
+        <input type="hidden" id="shipping-address-input" name="shipping_address_hidden" value="">
       </div>
 
       <table style="width:100%; border-collapse:collapse;">
@@ -1141,6 +1163,17 @@ if (isset($_SESSION['notification'])) {
           <tr>
             <td colspan="4" style="text-align:right; border:1px solid #eee; padding:8px;">VAT (10%)</td>
             <td style="border:1px solid #eee; padding:8px;"><span id="orderVAT">0</span></td>
+            <td style="border:1px solid #eee; padding:8px;"></td>
+          </tr>
+          <!-- (ADD) show distance & ship fee -->
+          <tr>
+            <td colspan="4" style="text-align:right; border:1px solid #eee; padding:8px;">Distance</td>
+            <td style="border:1px solid #eee; padding:8px;"><span id="orderDistance">0</span> km</td>
+            <td style="border:1px solid #eee; padding:8px;"></td>
+          </tr>
+          <tr>
+            <td colspan="4" style="text-align:right; border:1px solid #eee; padding:8px;">Shipping fee</td>
+            <td style="border:1px solid #eee; padding:8px;"><span id="orderShipFee">0</span></td>
             <td style="border:1px solid #eee; padding:8px;"></td>
           </tr>
           <tr>
@@ -1350,6 +1383,51 @@ if (isset($_SESSION['notification'])) {
 /* Nếu trước đó bạn có block ép min-width cho .table-no-wrap thì không còn hiệu lực
    vì ta đã bỏ class đó khỏi <table>. */
 
+/* === PM modal tweaks === */
+#pmModal .table-scroll{ overflow-x:hidden; } /* bỏ scrollbar ngang */
+#pmModal .modal-content{ max-width: 720px; } /* modal gọn hơn chút */
+
+/* Nút trong form PM: cùng chiều cao, padding, canh phải, bỏ đường viền trên */
+#pmForm .filter-buttons{
+  border-top: 0 !important;
+  padding-top: 0 !important;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+/* Đồng bộ kích thước 2 nút */
+#pmForm .filter-btn,
+#pmForm .reset-btn{
+  padding: 10px 18px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Clear: kiểu outline cho cân mắt nhưng giữ kích thước như Update */
+#pmForm .reset-btn{
+  background: #fff;
+  border: 1px solid #16a085;
+  color: #16a085;
+}
+#pmForm .reset-btn:hover{ background:#e9f7f4; }
+
+/* Khóa lại width cột theo thiết kế mới */
+#pmTable th:nth-child(1), #pmTable td:nth-child(1){ width:70px; }
+#pmTable th:nth-child(2), #pmTable td:nth-child(2){ width:24%; }
+#pmTable th:nth-child(3), #pmTable td:nth-child(3){ width:100px; text-align:center; white-space:nowrap; }
+#pmTable th:nth-child(5), #pmTable td:nth-child(5){ width:200px; }
+
+#pmTable td:nth-child(5){
+  display:flex; gap:8px; align-items:center; flex-wrap:nowrap !important;
+}
+#pmTable td:nth-child(5) button{
+  padding:5px 8px; font-size:13px; border-radius:6px; white-space:nowrap;
+}
+
+#addOrderModal .modal-backdrop { z-index: 0; }
+#addOrderModal .modal-panel    { z-index: 1; position: relative; }
 </style>
 
 <script>
@@ -1359,19 +1437,103 @@ if (isset($_SESSION['notification'])) {
   const body  = $('#orderBody');
   const total = $('#orderTotal');
   const err   = $('#orderErr');
+  const addrInp = document.getElementById('orderAddress');
+  const shipAddrHidden = document.getElementById('shipping-address-input');
+
+  if (addrInp && shipAddrHidden) {
+    // khi gõ cũng sync sang input ẩn
+    addrInp.addEventListener('input', () => {
+      shipAddrHidden.value = addrInp.value;
+    });
+
+    // khi blur: chốt giá trị + tính ship (đã có hàm calcShippingFromAddress)
+    addrInp.addEventListener('blur', async () => {
+      const v = addrInp.value.trim();
+      shipAddrHidden.value = v;
+      if (!v) return;               // trống thì thôi, để validation HTML xử lý
+      try { await calcShippingFromAddress(); } catch(_) {}
+    });
+  }
+
 
   const fmt = n => (Number(n)||0).toLocaleString('vi-VN');
 
   // === Mở / đóng modal ===
   function showOrderModal(){
     modal.style.display='flex';
+     // reset ship info
+    document.getElementById('orderAddress').value = '';
+    document.getElementById('shipping-address-input').value = '';
+    document.getElementById('distance-input').value = 0;
+    document.getElementById('shipping-fee-input').value = 0;
+    document.getElementById('distanceInfo').textContent = '0';
+    document.getElementById('shipFeeInfo').textContent = '0';
+    document.getElementById('orderDistance').textContent = '0';
+    document.getElementById('orderShipFee').textContent = '0';
     body.innerHTML='';
     addRow();
     recalcTotal();
   }
+  window.showOrderModal = showOrderModal;   // <= thêm dòng này
   function hideOrderModal(){ modal.style.display='none'; }
   window.hideOrderModal = hideOrderModal;
   $('#addOrderBtn')?.addEventListener('click', e => { e.preventDefault(); showOrderModal(); });
+  $('#addOrderForm')?.addEventListener('submit', async function(e){
+  e.preventDefault();
+  err.style.display='none';
+  err.textContent='';
+
+  if(!body.querySelector('tr')){
+    err.textContent='Please add at least one product.';
+    err.style.display='block';
+    return;
+  }
+
+  // Bắt buộc có address hiển thị (name="shipping_address")
+  const addr = (addrInp?.value || '').trim();
+  if (!addr) {
+    err.textContent = 'Please enter delivery address.';
+    err.style.display = 'block';
+    addrInp?.focus();
+    return;
+  }
+
+  // Luôn sync vào hidden copy (phòng server đang đọc bản hidden)
+  shipAddrHidden.value = addr;
+
+  // Đảm bảo 3 hidden input tồn tại & có giá trị số
+  const distEl = document.getElementById('distance-input');
+  const feeEl  = document.getElementById('shipping-fee-input');
+
+  // Nếu chưa có phí ship thì cố gắng tính
+  let needCalc = !Number(feeEl?.value || 0) || !Number(distEl?.value || 0);
+  if (needCalc) {
+    try { await calcShippingFromAddress(); } catch(_) {}
+  }
+
+  // Fallback: nếu vẫn không tính được (API ngoài mạng bị chặn) thì cho = 0 nhưng KHÔNG để trống
+  if (!distEl.value) distEl.value = 0;
+  if (!feeEl.value)  feeEl.value  = 0;
+
+  // Cập nhật lại các ô hiển thị để người dùng nhìn thấy giá trị đang gửi
+  document.getElementById('orderDistance').textContent = (+distEl.value||0).toLocaleString('vi-VN');
+  document.getElementById('orderShipFee').textContent  = (+feeEl.value||0).toLocaleString('vi-VN');
+  recalcTotal();
+
+  // Gửi
+  const fd = new FormData(this);
+  try{
+    const res  = await fetch('add_order.php', { method:'POST', body: fd });
+    const data = await res.json();
+    if(!data.success) throw new Error(data.message || 'Cannot create order');
+    hideOrderModal();
+    location.href = 'manage-orders.php?created=' + data.order_id;
+  }catch(ex){
+    err.textContent = ex.message || 'Error';
+    err.style.display = 'block';
+  }
+});
+
 
   // === Hàm thêm 1 dòng sản phẩm ===
   function addRow(){
@@ -1447,6 +1609,9 @@ if (isset($_SESSION['notification'])) {
     const tdPrice=document.createElement('td');
     tdPrice.style.border='1px solid #eee'; tdPrice.style.padding='8px';
     tdPrice.innerHTML = `<input name="price[]" type="number" step="0.01" min="0" value="0" style="width:120px; padding:6px 8px;">`;
+    const priceInp = tdPrice.querySelector('input[name="price[]"]');
+    priceInp.addEventListener('input', ()=> recalcRow(tr));
+    priceInp.addEventListener('change', ()=> recalcRow(tr));
 
     // --- Cột Stock ---
     const tdStock=document.createElement('td');
@@ -1484,6 +1649,47 @@ if (isset($_SESSION['notification'])) {
     tr.append(tdProd, tdPrice, tdStock, tdQty, tdSum, tdDel);
     body.appendChild(tr);
   }
+
+  // === Gắn sự kiện cho nút + Add product ===
+  document.getElementById('btnAddOrderRow')?.addEventListener('click', () => {
+    addRow();
+    recalcTotal();
+  });
+
+  // === Giới hạn & tính lại từng hàng ===
+  function limitQty(tr){
+    const stock = Number(tr.querySelector('.stock').textContent || 0);
+    const inp   = tr.querySelector('input[name="qty[]"]');
+    let v = Number(inp.value || 1);
+    if (stock > 0 && v > stock) v = stock;
+    if (v < 1) v = 1;
+    inp.value = v;
+    recalcRow(tr);
+  }
+
+  function recalcRow(tr){
+    const qty   = Number(tr.querySelector('input[name="qty[]"]').value || 0);
+    const price = Number(tr.querySelector('input[name="price[]"]').value || 0);
+    const sum   = qty * price;
+    tr.querySelector('.sum').textContent = (Math.round(sum) || 0).toLocaleString('vi-VN');
+    recalcTotal();
+  }
+
+  function recalcTotal(){
+    let subtotal = 0;
+    body.querySelectorAll('tr').forEach(tr=>{
+      const qty   = Number(tr.querySelector('input[name="qty[]"]').value || 0);
+      const price = Number(tr.querySelector('input[name="price[]"]').value || 0);
+      subtotal += qty * price;
+    });
+    const vat  = subtotal * 0.10;
+    const ship = Number(document.getElementById('shipping-fee-input')?.value || 0);
+
+    document.getElementById('orderSubtotal').textContent = Math.round(subtotal).toLocaleString('vi-VN');
+    document.getElementById('orderVAT').textContent      = Math.round(vat).toLocaleString('vi-VN');
+    document.getElementById('orderTotal').textContent    = Math.round(subtotal + vat + ship).toLocaleString('vi-VN');
+  }
+
 
   // === Gợi ý tìm sản phẩm (kèm debug & hint) ===
   let suggestTimer=null, lastQuery='';
@@ -1566,69 +1772,166 @@ if (isset($_SESSION['notification'])) {
     if(v<1)v=1;
     inp.value=v; recalcRow(tr);
   }
-  function recalcRow(tr){
-    const qty=Number(tr.querySelector('input[name="qty[]"]').value||0);
-    const price=Number(tr.querySelector('input[name="price[]"]').value||0);
-    tr.querySelector('.sum').textContent=(qty*price||0).toLocaleString('vi-VN');
-    recalcTotal();
-  }
   
-  function recalcTotal(){
-    let subtotal = 0;
-    body.querySelectorAll('.sum').forEach(s => {
-      // '1.234.567' -> 1234567
-      const raw = String(s.textContent||'0').replace(/\./g,'').replace(',','.');
-      subtotal += Number(raw)||0;
-    });
-    const vat   = Math.round(subtotal * 0.10);
-    const totalV = subtotal + vat;
+  // ===== Shipping calc (clean version, single definitions) =====
 
-    // Fill UI
-    const elSub = document.getElementById('orderSubtotal');
-    const elVAT = document.getElementById('orderVAT');
-    const elTot = document.getElementById('orderTotal');
+// 1) Config
+const COMPANY_COORDS = [106.70098, 10.77689]; // [lon, lat]
+const SHIP_RATE_PER_KM = 100000;              // 100.000 VND/km
 
-    if (elSub) elSub.textContent = fmt(subtotal);
-    if (elVAT) elVAT.textContent = fmt(vat);
-    if (elTot) elTot.textContent = fmt(totalV);
+// 2) Helpers
+async function fetchWithTimeout(url, opts = {}, ms = 8000){
+  const c = new AbortController();
+  const t = setTimeout(()=>c.abort(), ms);
+  try {
+    const res = await fetch(url, { ...opts, signal: c.signal });
+    clearTimeout(t);
+    return res;
+  } catch (e) {
+    clearTimeout(t);
+    throw e;
   }
+}
+
+function haversineKm([lon1,lat1],[lon2,lat2]){
+  const toRad = d => d * Math.PI/180;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return +(2 * R * Math.asin(Math.sqrt(a))).toFixed(2);
+}
 
 
-  // === Sự kiện form ===
-  $('#btnAddOrderRow')?.addEventListener('click', addRow);
-  $('#addOrderForm')?.addEventListener('submit', async function(e){
-    e.preventDefault();
-    err.style.display='none'; err.textContent='';
-    if(!body.querySelector('tr')){err.textContent='Please add at least one product.';err.style.display='block';return;}
-    const fd=new FormData(this);
-    try{
-      const res=await fetch('add_order.php',{method:'POST',body:fd});
-      const data=await res.json();
-      if(!data.success)throw new Error(data.message||'Cannot create order');
-      hideOrderModal();
-      location.href='manage-orders.php?created='+data.order_id;
-    }catch(ex){
-      err.textContent=ex.message||'Error';
-      err.style.display='block';
+// 3) Geocode qua proxy PHP để tránh CORS/blocked
+async function geocodeAddress(addr){
+  const u = new URL('geocode.php', location.href);
+  u.searchParams.set('q', addr);
+
+  let res;
+  try{
+    res = await fetchWithTimeout(u.toString(), { headers:{ 'Accept':'application/json' } }, 10000);
+  }catch(e){
+    throw new Error('Geocode timeout/blocked');
+  }
+  if(!res.ok) throw new Error('Geocode HTTP '+res.status);
+
+  const j = await res.json();
+  if(!Array.isArray(j) || !j.length) throw new Error('Address not found');
+
+  const { lat, lon } = j[0];
+  return [parseFloat(lon), parseFloat(lat)]; // [lon, lat]
+}
+
+// 4) Route distance (OSRM) – single definition + fallback
+async function getRouteDistanceKm(start, end){
+  const url = `https://router.project-osrm.org/route/v1/driving/${start[0]},${start[1]};${end[0]},${end[1]}?overview=false`;
+  try{
+    const res = await fetchWithTimeout(url, {}, 8000);
+    if(!res.ok) throw new Error('OSRM HTTP '+res.status);
+    const data = await res.json();
+    const meters = data?.routes?.[0]?.distance ?? 0;
+    if (!meters) throw new Error('No route');
+    return +(meters / 1000).toFixed(2);
+  }catch(e){
+    // Fallback: ước lượng đường bộ ≈ 1.25 * chim bay
+    return +(haversineKm(start, end) * 1.25).toFixed(2);
+  }
+}
+
+// 5) Tính phí ship + cập nhật UI/hidden
+async function calcShippingFromAddress(){
+  const addrInp = document.getElementById('orderAddress');
+  const errBox  = document.getElementById('orderErr');
+  const addr = (addrInp?.value || '').trim();
+  if(!addr){ throw new Error('Please enter address'); }
+
+  // reset thông báo lỗi (nếu có)
+  if (errBox){ errBox.style.display='none'; errBox.textContent=''; }
+
+  const userLL = await geocodeAddress(addr);
+  const km = await getRouteDistanceKm(COMPANY_COORDS, userLL);
+  const fee = Math.ceil(km * SHIP_RATE_PER_KM);
+
+  // UI
+  const fmtVN = n => (Number(n)||0).toLocaleString('vi-VN');
+  document.getElementById('distanceInfo').textContent = fmtVN(km);
+  document.getElementById('shipFeeInfo').textContent  = fmtVN(fee);
+  document.getElementById('orderDistance').textContent = fmtVN(km);
+  document.getElementById('orderShipFee').textContent  = fmtVN(fee);
+
+  // Hidden (giá trị thô)
+  document.getElementById('distance-input').value = km;
+  document.getElementById('shipping-fee-input').value = fee;
+  document.getElementById('shipping-address-input').value = addr;
+
+  recalcTotal();
+}
+
+// export để nút "Calculate" và blur gọi được
+window.calcShippingFromAddress = calcShippingFromAddress;
+
+// 6) Gắn sự kiện theo yêu cầu: chỉ blur & nút
+const addrInputEl = document.getElementById('orderAddress');
+if (addrInputEl){
+  addrInputEl.addEventListener('blur', async ()=>{
+    const v = addrInputEl.value.trim();
+    if (!v) return;
+    try { await calcShippingFromAddress(); }
+    catch(ex){
+      const errBox = document.getElementById('orderErr');
+      if (errBox){ errBox.textContent = ex.message || 'Cannot calculate shipping'; errBox.style.display='block'; }
+      console.error('[ship] blur calc failed:', ex);
     }
   });
+}
+const btnCalc = document.getElementById('btnCalcShip');
+if (btnCalc){
+  btnCalc.addEventListener('click', async ()=>{
+    const errBox = document.getElementById('orderErr');
+    if (errBox){ errBox.style.display='none'; errBox.textContent=''; }
+    try { await calcShippingFromAddress(); }
+    catch(ex){
+      if (errBox){ errBox.textContent = ex.message || 'Cannot calculate shipping'; errBox.style.display='block'; }
+      console.error('[ship] button calc failed:', ex);
+    }
+  });
+}
 
-  // ---- Debug nhanh: nhấn Alt+O để mở modal test ----
-  document.addEventListener('keydown', (e)=>{
-    if (e.altKey && e.key.toLowerCase()==='o') showOrderModal();
+// 7) Phím tắt kiểm tra nhanh API (Alt+G): sẽ thử geocode "Bến Thành, HCM"
+document.addEventListener('keydown', async (e)=>{
+  if (e.altKey && e.key.toLowerCase()==='g'){
+    try{
+      const test = await geocodeAddress('Chợ Bến Thành, Hồ Chí Minh');
+      console.log('[ship] Geocode OK:', test);
+    }catch(ex){
+      console.error('[ship] Geocode test failed:', ex);
+      const errBox = document.getElementById('orderErr');
+      if (errBox){ errBox.textContent = 'Geocode bị chặn/timeout. Kiểm tra Network.'; errBox.style.display='block'; }
+    }
+  }
+});
+
+
+  // nếu muốn tự tính khi blur ô địa chỉ:
+  document.getElementById('orderAddress')?.addEventListener('blur', async ()=>{
+    if(!document.getElementById('orderAddress').value.trim()) return;
+    try{ await calcShippingFromAddress(); }catch(_){}
   });
 })();
+
 </script>
 
 <script>
-function openPmModal(){ document.getElementById('pmModal').style.display='block'; loadPm(); }
-function closePmModal(){ document.getElementById('pmModal').style.display='none'; }
-function resetPmForm(){ pm_id.value=''; pm_name.value=''; pm_desc.value=''; }
 const pmTableBody = document.querySelector('#pmTable tbody');
 const pmErr = document.getElementById('pmErr');
 const pm_id = document.getElementById('pm_id');
 const pm_name = document.getElementById('pm_name');
 const pm_desc = document.getElementById('pm_desc');
+
+function openPmModal(){ document.getElementById('pmModal').style.display='block'; loadPm(); }
+function closePmModal(){ document.getElementById('pmModal').style.display='none'; }
+function resetPmForm(){ pm_id.value=''; pm_name.value=''; pm_desc.value=''; }
 
 async function loadPm(){
   pmErr.style.display='none';
@@ -1636,238 +1939,112 @@ async function loadPm(){
     const res = await fetch('payment_methods_api.php?action=list',{cache:'no-store'});
     const data = await res.json();
     pmTableBody.innerHTML = Array.isArray(data) ? data.map(row => {
-    const active = Number(row.is_active) === 1; // ép kiểu CHẮC CHẮN
-    return `
-      <tr>
-        <td>#${row.payment_method_id}</td>
-        <td>${escapeHtml(row.method_name||'')}</td>
-        <td>
-          <span class="badge ${active ? 'badge--active':'badge--hidden'}">
-            ${active ? 'Active' : 'Hidden'}
-          </span>
-        </td>
-        <td>${escapeHtml(row.description||'')}</td>
-        <td style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-          <button class="edit-status-btn" type="button"
-            onclick='editPm(${row.payment_method_id},
-                            ${JSON.stringify(row.method_name).replace(/</g,"\\u003c")},
-                            ${JSON.stringify(row.description||"").replace(/</g,"\\u003c")})'>
-            <i class="fas fa-pen"></i> Edit
-          </button>
-          <button class="modal-btn ${active ? 'cancel-btn':'save-btn'}" type="button"
-            onclick="togglePm(${row.payment_method_id}, ${active ? 0 : 1})">
-            ${active ? '<i class="fas fa-eye-slash"></i> Hide' : '<i class="fas fa-eye"></i> Show'}
-          </button>
-          <button class="modal-btn cancel-btn" type="button"
-            onclick="delPm(${row.payment_method_id})">
-            <i class="fas fa-trash"></i> Delete
-          </button>
-        </td>
-      </tr>
-    `;
-  }).join('') : '<tr><td colspan="5">No methods</td></tr>';
-
+      const active = Number(row.is_active) === 1;
+      return `
+        <tr>
+          <td>#${row.payment_method_id}</td>
+          <td>${escapeHtml(row.method_name||'')}</td>
+          <td>
+            <span class="badge ${active ? 'badge--active':'badge--hidden'}">
+              ${active ? 'Active' : 'Hidden'}
+            </span>
+          </td>
+          <td>${escapeHtml(row.description||'')}</td>
+          <td style="display:flex;gap:6px;align-items:center;flex-wrap:nowrap;">
+            <button class="edit-status-btn" type="button"
+              onclick='editPm(${row.payment_method_id},
+                              ${JSON.stringify(row.method_name).replace(/</g,"\\u003c")},
+                              ${JSON.stringify(row.description||"").replace(/</g,"\\u003c")})'>
+              <i class="fas fa-pen"></i> Edit
+            </button>
+            <button class="modal-btn ${active ? 'cancel-btn':'save-btn'}" type="button"
+              onclick="togglePm(${row.payment_method_id}, ${active ? 0 : 1})">
+              ${active ? '<i class="fas fa-eye-slash"></i> Hide' : '<i class="fas fa-eye"></i> Show'}
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('') : '<tr><td colspan="5">No methods</td></tr>';
   }catch(e){
     pmErr.textContent = 'Không tải được danh sách phương thức: ' + (e.message||e);
     pmErr.style.display='block';
   }
 }
-
-async function refreshOrderPaymentSelect(){
-  const paySel = document.getElementById('ordPayment');
-  if(!paySel) return;
-
-  const res = await fetch('payment_methods_api.php?action=list', {cache:'no-store'});
-  const rows = await res.json();
-  const actives = Array.isArray(rows) ? rows.filter(r => Number(r.is_active) === 1) : [];
-
-  paySel.innerHTML =
-    '<option value="">-- Select method --</option>' +
-    actives.map(r => `<option value="${r.payment_method_id}">${escapeHtml(r.method_name||'')}</option>`).join('');
-}
-
-function editPm(id, name, desc){ pm_id.value=id; pm_name.value=name; pm_desc.value=desc||''; }
-
-async function savePm(ev){
-  ev.preventDefault();
-  pmErr.style.display='none';
-  const fd = new FormData(document.getElementById('pmForm'));
-  const action = pm_id.value ? 'update' : 'create';
-  const res = await fetch('payment_methods_api.php?action='+action, { method:'POST', body: fd });
-  const data = await res.json();
-  if(!data.success){ pmErr.textContent = data.message||'Lỗi lưu dữ liệu'; pmErr.style.display='block'; return false; }
-  resetPmForm(); loadPm(); return false;
-}
-
-async function delPm(id){
-  if(!confirm('Xóa phương thức #' + id + ' ? (Sẽ bị chặn nếu đã được dùng trong đơn hàng)')) return;
-  pmErr.style.display='none';
-  const fd = new FormData(); fd.append('payment_method_id', id);
-  const res = await fetch('payment_methods_api.php?action=delete', { method:'POST', body: fd });
-  const data = await res.json();
-  if(!data.success){ pmErr.textContent = data.message||'Không thể xóa'; pmErr.style.display='block'; return; }
-  loadPm();
-}
-
-async function togglePm(id, active){
-  pmErr.style.display='none';
-  const fd = new FormData();
-  fd.append('payment_method_id', id);
-  fd.append('is_active', active);
-  const res = await fetch('payment_methods_api.php?action=toggle', { method:'POST', body: fd });
-  const data = await res.json();
-  if(!data.success){ pmErr.textContent = 'Không đổi được trạng thái'; pmErr.style.display='block'; return; }
-  await loadPm();
-  // cập nhật select Payment trong modal tạo đơn (chỉ hiển thị active)
-  await refreshOrderPaymentSelect();
-}
-
-
-function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[m]))}
 </script>
 
 <script>
-// ===== Payment Methods Manager (API in same folder) =====
-(() => {
-  const API_PM = 'payment_methods_api.php'; // <<— trỏ đúng file cùng thư mục
+// --- các hàm còn thiếu cho PM modal ---
 
-  // Elements
-  const pm = {
-    modal:  document.getElementById('pmModal'),
-    open:   document.getElementById('managePmBtn'),
-    close:  document.getElementById('pmClose'),
-    close2: document.getElementById('pmClose2'),
-    tbody:  document.getElementById('pmTbody'),
-    form:   document.getElementById('pmForm'),
-    id:     document.getElementById('pmId'),
-    name:   document.getElementById('pmName'),
-    desc:   document.getElementById('pmDesc'),
-    save:   document.getElementById('pmSaveBtn'),
-    reset:  document.getElementById('pmResetBtn'),
-    err:    document.getElementById('pmErr'),
-  };
-  if (!pm.open) return; // trang không có nút thì bỏ qua
+function editPm(id, name, desc){
+  pm_id.value   = id;
+  pm_name.value = name;
+  pm_desc.value = desc || '';
+  pm_name.focus();
+}
 
-  const showPm = () => { pm.modal.style.display = 'flex'; pm.err.classList.add('hidden'); list(); };
-  const hidePm = () => { pm.modal.style.display = 'none'; clearForm(); };
+async function savePm(ev){
+  ev.preventDefault();
+  pmErr.style.display = 'none';
+  pmErr.textContent   = '';
 
-  pm.open.addEventListener('click', showPm);
-  pm.close.addEventListener('click', hidePm);
-  pm.close2.addEventListener('click', hidePm);
-  pm.modal.addEventListener('click', (e) => { if (e.target === pm.modal) hidePm(); });
-
-  function clearForm() {
-    pm.id.value = '';
-    pm.name.value = '';
-    pm.desc.value = '';
+  if (!pm_id.value){
+    pmErr.textContent = 'Hãy bấm “Edit” một phương thức trong danh sách trước khi cập nhật.';
+    pmErr.style.display = 'block';
+    return false;
   }
 
-  function setError(msg) {
-    pm.err.textContent = msg || 'Error';
-    pm.err.classList.remove('hidden');
+  const fd = new FormData(document.getElementById('pmForm'));
+  try{
+    const res  = await fetch('payment_methods_api.php?action=update', { method:'POST', body: fd });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.message || 'Không thể cập nhật phương thức');
+
+    resetPmForm();
+    await loadPm();
+    await refreshOrderPaymentSelect();
+    return false;
+  }catch(e){
+    pmErr.textContent = e.message || 'Lỗi lưu dữ liệu';
+    pmErr.style.display = 'block';
+    return false;
   }
+}
 
-  // ---- API helpers (list/create/update/delete) ----
-  async function apiList() {
-    const r = await fetch(`${API_PM}?action=list`, {cache:'no-store'});
-    return r.json();
+async function togglePm(id, active){
+  pmErr.style.display = 'none';
+  const fd = new FormData();
+  fd.append('payment_method_id', id);
+  fd.append('is_active', active);
+
+  try{
+    const res  = await fetch('payment_methods_api.php?action=toggle', { method:'POST', body: fd });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.message || 'Không đổi được trạng thái');
+
+    await loadPm();
+    await refreshOrderPaymentSelect();
+  }catch(e){
+    pmErr.textContent = e.message || 'Lỗi đổi trạng thái';
+    pmErr.style.display = 'block';
   }
-  async function apiCreate(fd) {
-    const r = await fetch(`${API_PM}?action=create`, {method:'POST', body: fd});
-    return r.json();
-  }
-  async function apiUpdate(fd) {
-    const r = await fetch(`${API_PM}?action=update`, {method:'POST', body: fd});
-    return r.json();
-  }
-  async function apiDelete(id) {
-    const fd = new FormData(); fd.append('payment_method_id', id);
-    const r = await fetch(`${API_PM}?action=delete`, {method:'POST', body: fd});
-    return r.json();
-  }
+}
 
-  // ---- Render list & wire events ----
-  async function list() {
-    try {
-      pm.tbody.innerHTML = '<tr><td colspan="3">Loading...</td></tr>';
-      const rows = await apiList();
-      if (!Array.isArray(rows)) throw new Error(rows?.message || 'Cannot load methods.');
+async function refreshOrderPaymentSelect(){
+  // Cần id="ordPayment" ở <select> thanh toán trong modal Add Order (bước B)
+  const paySel = document.getElementById('ordPayment');
+  if(!paySel) return;
 
-      pm.tbody.innerHTML = rows.map(x => `
-        <tr>
-          <td><strong>${escapeHtml(x.method_name || '')}</strong></td>
-          <td>${escapeHtml(x.description || '')}</td>
-          <td>
-            <button class="btn" data-edit="${x.payment_method_id}">Edit</button>
-            <button class="btn btn-danger" data-del="${x.payment_method_id}">Delete</button>
-          </td>
-        </tr>
-      `).join('') || '<tr><td colspan="3">No methods</td></tr>';
+  const res  = await fetch('payment_methods_api.php?action=list', { cache:'no-store' });
+  const rows = await res.json();
+  const actives = Array.isArray(rows) ? rows.filter(r => Number(r.is_active) === 1) : [];
 
-      // Bind edit/delete
-      pm.tbody.querySelectorAll('[data-edit]').forEach(b=>{
-        b.addEventListener('click', () => {
-          const id = b.getAttribute('data-edit');
-          const tr = b.closest('tr');
-          pm.id.value   = id;
-          pm.name.value = tr.children[0].innerText.trim();
-          pm.desc.value = tr.children[1].innerText.trim();
-          pm.name.focus();
-        });
-      });
-      pm.tbody.querySelectorAll('[data-del]').forEach(b=>{
-        b.addEventListener('click', async () => {
-          const id = b.getAttribute('data-del');
-          if (!confirm('Delete this method?')) return;
-          const res = await apiDelete(id);
-          if (!res.success) { setError(res.message); return; }
-          await list();
-          // nếu modal tạo đơn đang mở, cập nhật lại select “Payment”
-          refreshOrderPaymentSelect();
-        });
-      });
+  paySel.innerHTML = '<option value="">-- Select method --</option>' +
+    actives.map(r => `<option value="${r.payment_method_id}">${escapeHtml(r.method_name||'')}</option>`).join('');
+}
 
-      pm.err.classList.add('hidden');
-    } catch (e) {
-      setError(e.message);
-    }
-  }
-
-  // ---- Create / Update submit ----
-  pm.form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    pm.err.classList.add('hidden');
-
-    const fd = new FormData(pm.form);
-    try {
-      const isUpdate = !!pm.id.value;
-      const res = isUpdate ? await apiUpdate(fd) : await apiCreate(fd);
-      if (!res.success) { setError(res.message); return; }
-      clearForm();
-      await list();
-      // đồng bộ select Payment trong modal tạo đơn
-      refreshOrderPaymentSelect();
-    } catch (e2) {
-      setError(e2.message);
-    }
-  });
-
-  pm.reset.addEventListener('click', clearForm);
-
-  // ---- Đồng bộ lại select “Payment” của modal Add Order sau khi CRUD PM ----
-  async function refreshOrderPaymentSelect() {
-    const paySel = document.getElementById('ordPayment');
-    if (!paySel) return;
-    const rows = await apiList(); // rows gồm cả is_active
-    const actives = Array.isArray(rows) ? rows.filter(x => Number(x.is_active) === 1) : [];
-    paySel.innerHTML =
-      '<option value="">-- Select method --</option>' +
-      actives.map(x => `<option value="${x.payment_method_id}">${escapeHtml(x.method_name||'')}</option>`).join('');
-  }
-
-  // small util
-  function escapeHtml(s){return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
-})();
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+}
 </script>
 
 </body>
