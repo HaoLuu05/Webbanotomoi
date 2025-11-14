@@ -13,11 +13,12 @@ $query = "
     SELECT 
         o.*,
         u.username, u.full_name, u.email, u.phone_num, u.address,
-        p.car_name, p.price, p.image_link, p.color, p.year_manufacture, 
+        p.car_name, p.image_link, p.color, p.year_manufacture, 
         p.seat_number, p.fuel_name,
         ct.type_name,
         pm.method_name,
-        od.quantity
+        od.quantity,
+        od.price AS unit_price
     FROM orders o
     JOIN users_acc u ON o.user_id = u.id
     JOIN order_details od ON o.order_id = od.order_id
@@ -26,6 +27,7 @@ $query = "
     JOIN payment_methods pm ON o.payment_method_id = pm.payment_method_id
     WHERE o.order_id = ?
 ";
+
 
 $stmt = mysqli_prepare($connect, $query);
 mysqli_stmt_bind_param($stmt, "i", $order_id);
@@ -43,6 +45,19 @@ if (mysqli_num_rows($result) === 0) {
 // Fetch all order data
 $orderData = mysqli_fetch_all($result, MYSQLI_ASSOC);
 $order = $orderData[0]; // Basic order info
+// ===== Amounts (use order values, fallback to computed) =====
+$itemsSubtotal = 0.0;
+foreach ($orderData as $it) {
+    $itemsSubtotal += (float)$it['unit_price'] * (int)$it['quantity'];
+}
+
+$subtotal  = is_null($order['expected_total_amount']) ? $itemsSubtotal : (float)$order['expected_total_amount'];
+$vat       = is_null($order['VAT'])                   ? round($subtotal * 0.10, 2) : (float)$order['VAT'];
+$shipping  = is_null($order['shipping_fee'])          ? 0.00                       : (float)$order['shipping_fee'];
+$total     = is_null($order['total_amount'])          ? ($subtotal + $vat + $shipping) : (float)$order['total_amount'];
+
+function vnd($n){ return number_format((float)$n, 0, ',', '.') . ' VND'; }
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -171,16 +186,17 @@ $order = $orderData[0]; // Basic order info
 </style>
 <style>
     .invoice-container {
-        // ...existing code...
+        /* override dark theme */ 
         background: rgba(20, 30, 48, 0.7);
         border: 1px solid rgba(100, 181, 246, 0.2);
         color: #e0e0e0;
     }
 
     .invoice-header {
-        // ...existing code...
+        /* override dark theme */
         border-bottom: 2px solid rgba(100, 181, 246, 0.2);
     }
+
 
     .invoice-header h1 {
         color: #64B5F6;
@@ -487,28 +503,17 @@ $order = $orderData[0]; // Basic order info
                     <span class="status-badge status-<?= str_replace(' ', '-', strtolower($order['order_status'])) ?>">
                         <?php
                         switch ($order['order_status']) {
-                            case 'initiated':
-                                echo 'Initiated';
-                                break;
-                            case 'is pending':
-                                echo 'Is pending';
-                                break;
-                            case 'is confirmed':
-                                echo 'Is confirmed';
-                                break;
-                            case 'is delivering':
-                                echo 'Is delivering';
-                                break;
-                            case 'completed':
-                                echo 'Completed';
-                                break;
-                            case 'cancelled':
-                                echo 'Cancelled';
-                                break;
-                            default:
-                                echo $order['order_status'];
+                            case 'initiated':      echo 'Initiated'; break;
+                            case 'is pending':     echo 'Is pending'; break;
+                            case 'is confirmed':   echo 'Is confirmed'; break;
+                            case 'is delivering':  echo 'Is delivering'; break;
+                            case 'delivered':      echo 'Delivered'; break;
+                            case 'completed':      echo 'Completed'; break;
+                            case 'cancelled':      echo 'Cancelled'; break;
+                            default:               echo htmlspecialchars($order['order_status']);
                         }
                         ?>
+                    </span>
                 </div>
                 <div class="info-item">
                     <strong>Payment Method:</strong>
@@ -520,7 +525,7 @@ $order = $orderData[0]; // Basic order info
                 </div>
                 <div class="info-item">
                     <strong>Distance:</strong>
-                    <span><?php echo htmlspecialchars($order['distance']); ?></span>
+                    <span><?php echo number_format((float)$order['distance'], 2, ',', '.'); ?> km</span>
                 </div>
             </div>
         </section>
@@ -562,8 +567,8 @@ $order = $orderData[0]; // Basic order info
                                     <small>Fuel: <?php echo htmlspecialchars($item['fuel_name']); ?></small>
                                 </td>
                                 <td><?php echo $item['quantity']; ?></td>
-                                <td><?php echo number_format($item['price'], 0, ',', '.'); ?> VND</td>
-                                <td><?php echo number_format($item['price'] * $item['quantity'], 0, ',', '.'); ?> VND</td>
+                                <td><?php echo number_format($item['unit_price'], 0, ',', '.'); ?> VND</td>
+                                <td><?php echo number_format($item['unit_price'] * $item['quantity'], 0, ',', '.'); ?> VND</td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -577,27 +582,42 @@ $order = $orderData[0]; // Basic order info
             <div class="summary-grid">
                 <div class="summary-item">
                     <span>Subtotal:</span>
-                    <span><?php echo number_format($order['expected_total_amount'], 0, ',', '.'); ?> VND</span>
+                    <span><?php echo vnd($subtotal); ?></span>
                 </div>
                 <div class="summary-item">
                     <span>VAT (10%):</span>
-                    <span><?php echo number_format($order['VAT'], 0, ',', '.'); ?>
-                        VND</span>
+                    <span><?php echo vnd($vat); ?></span>
                 </div>
                 <div class="summary-item">
                     <span>Shipping Fee:</span>
-                    <span><?php echo number_format($order['shipping_fee'], 0, ',', '.'); ?> VND</span>
+                    <span><?php echo vnd($shipping); ?></span>
                 </div>
                 <div class="summary-item total">
                     <strong>Total Amount:</strong>
-                    <strong><?php echo number_format($order['total_amount'], 0, ',', '.'); ?> VND</strong>
+                    <strong><?php echo vnd($total); ?></strong>
                 </div>
             </div>
         </section>
 
+
+        <!-- Action bar -->
+        <div class="invoice-actions">
+        <!-- Trái: về Statistics -->
         <button class="back-btn" onclick="window.location.href='statics.php'">
             <i class="fas fa-arrow-left"></i> Back to Statistics
         </button>
+
+        <!-- Giữa: In / Xuất hóa đơn -->
+        <button class="back-btn" onclick="window.print()">
+            <i class="fas fa-print"></i> Print / Export
+        </button>
+
+        <!-- Phải: sang Manage Orders (mũi tên phải) -->
+        <button class="back-btn" onclick="window.location.href='manage-orders.php'">
+            Manage Orders <i class="fas fa-arrow-right"></i>
+        </button>
+        </div>
+
     </div>
 
     <style>
@@ -677,6 +697,32 @@ $order = $orderData[0]; // Basic order info
             font-size: 0.9em;
             font-weight: 500;
         }
+
+        /* Thanh nút 3 cột: trái – giữa – phải */
+        .invoice-actions{
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        gap: 12px;
+        margin-top: 24px;
+        }
+        .invoice-actions > :first-child{ justify-self: start; }
+        .invoice-actions > :nth-child(2){ justify-self: center; }
+        .invoice-actions > :last-child{ justify-self: end; }
+
+        /* Ẩn thanh nút & khung site khi in */
+        @media print{
+        .invoice-actions,
+        .navbar,
+        header, footer { display: none !important; }
+        body{ background:#fff; }
+        .invoice-container{
+            box-shadow: none !important;
+            margin: 0 !important;
+            max-width: 100% !important;
+        }
+        }
+
     </style>
 
 </body>

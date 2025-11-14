@@ -2281,10 +2281,6 @@ function getTimeBasedGreeting()
                         Đăng nhập
                     </a>
                     <span class="separator"></span>
-                    <a href="register.php" class="user-link">
-                        <i class="fas fa-user-plus"></i>
-                        Đăng ký
-                    </a>
                 </div>
             <?php endif; ?>
         </div>
