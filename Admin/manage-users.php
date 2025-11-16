@@ -1,9 +1,31 @@
 <?php
 include 'header.php';
 
-// Fetch users from database
-$sql = "SELECT * FROM users_acc ORDER BY register_date ASC";
-$result = mysqli_query($connect, $sql);
+// Fetch users from database (có hỗ trợ tìm kiếm)
+$keyword = trim($_GET['keyword'] ?? '');
+
+if ($keyword !== '') {
+    $like = '%' . $keyword . '%';
+
+    $sql = "
+        SELECT *
+        FROM users_acc
+        WHERE username  LIKE ?
+           OR full_name LIKE ?
+           OR email     LIKE ?
+           OR phone_num LIKE ?
+        ORDER BY register_date ASC
+    ";
+
+    $stmt = $connect->prepare($sql);
+    $stmt->bind_param('ssss', $like, $like, $like, $like);
+    $stmt->execute();
+    $result = $stmt->get_result();
+} else {
+    $sql = "SELECT * FROM users_acc ORDER BY register_date ASC";
+    $result = mysqli_query($connect, $sql);
+}
+
 
 // Handle user actions
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
@@ -613,13 +635,54 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     <main>
 
         <!-- User Management -->
-        <section class="admin-section">
-            <h2><i class="fa-solid fa-users">&nbsp;&nbsp;</i>User Management</h2>
-            <button onclick="addUser()" id="add-user-btn">
-                <i class="fa-solid fa-plus"></i>
-                Add User
-            </button>
+                <!-- User Management -->
+                <section class="admin-section">
+                    <h2><i class="fa-solid fa-users">&nbsp;&nbsp;</i>User Management</h2>
+
+                    <!-- Hàng 1: chỉ có nút Add User -->
+                    <div style="margin-bottom: 10px;">
+                        <button onclick="addUser()" id="add-user-btn">
+                            <i class="fa-solid fa-plus"></i>
+                            Add User
+                        </button>
+                    </div>
+
+                    <!-- Hàng 2: ô tìm kiếm, nằm hoàn toàn bên dưới nút Add User -->
+                    <form method="get" action="manage-users.php" style="margin: 0 0 18px 0;">
+                        <div style="display:flex; gap:8px; width:100%; max-width:480px;">
+
+                            <input
+                                type="text"
+                                name="keyword"
+                                placeholder="Search by username / full name / email / phone"
+                                value="<?php echo htmlspecialchars($_GET['keyword'] ?? ''); ?>"
+                                style="padding:7px 10px; border:1px solid #ccc; border-radius:6px; flex:1;"
+                            >
+
+                            <!-- Search button -->
+                            <button type="submit"
+                                    style="padding:8px 14px; border-radius:6px; border:none;
+                                        background:#1abc9c; color:#fff; display:inline-flex;
+                                        align-items:center; gap:6px; cursor:pointer;">
+                                <i class="fas fa-search"></i> Search
+                            </button>
+
+                            <!-- Reset button (luôn xuất hiện) -->
+                            <a href="manage-users.php"
+                            style="padding:8px 14px; border-radius:6px; border:1px solid #ccc;
+                                    background:#f8f9fa; text-decoration:none; color:#333;
+                                    display:inline-flex; align-items:center; gap:6px;">
+                                <i class="fas fa-undo"></i> Reset
+                            </a>
+
+                        </div>
+                    </form>
+
+
+            </div>
+
             <table class="admin-table">
+
                 <!-- ... existing code -->
                 <thead>
                     <tr>
