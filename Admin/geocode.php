@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 <?php
 // geocode.php
 // Proxy nhẹ nhàng tới Nominatim để tránh CORS từ browser
@@ -66,7 +65,7 @@ if ($http < 200 || $http >= 300) {
 
 // Trả dữ liệu JSON của Nominatim theo đúng format
 echo $resp;
-=======
+
 <?php
 // geocode.php
 // Proxy nhẹ nhàng tới Nominatim để tránh CORS từ browser
@@ -134,4 +133,3 @@ if ($http < 200 || $http >= 300) {
 
 // Trả dữ liệu JSON của Nominatim theo đúng format
 echo $resp;
->>>>>>> 9e8891c346e764570cf2a26dd549167c036c9343
