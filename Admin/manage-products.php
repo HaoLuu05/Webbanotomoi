@@ -1682,6 +1682,34 @@ while ($brand = mysqli_fetch_assoc($brands_result)) {
                 <i class="fa-solid fa-plus"></i>
                 Add New Product
             </button>
+            <form method="GET" class="filter-form" style="display:flex; gap:10px; align-items:center; margin-top:8px; margin-bottom:12px; flex-wrap:wrap;">
+                <input type="text" name="keyword" placeholder="Tìm tên sản phẩm..." value="<?php echo isset($_GET['keyword']) ? htmlspecialchars($_GET['keyword']) : ''; ?>" style="padding:6px 8px; min-width:200px;">
+
+                <select name="car_type" style="padding:6px 8px;">
+                    <option value="">Tất cả loại xe</option>
+                    <?php foreach ($brands as $b): ?>
+                        <option value="<?= $b['type_id'] ?>" <?= (isset($_GET['car_type']) && $_GET['car_type']==$b['type_id'])?'selected':'' ?>><?= htmlspecialchars($b['type_name']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+
+                <select name="price_filter" style="padding:6px 8px;">
+                    <option value="">Tất cả giá</option>
+                    <option value="1" <?= (isset($_GET['price_filter']) && $_GET['price_filter']=="1") ? 'selected' : '' ?>>Dưới 500 triệu</option>
+                    <option value="2" <?= (isset($_GET['price_filter']) && $_GET['price_filter']=="2") ? 'selected' : '' ?>>500 - 1 tỷ</option>
+                    <option value="3" <?= (isset($_GET['price_filter']) && $_GET['price_filter']=="3") ? 'selected' : '' ?>>Trên 1 tỷ</option>
+                </select>
+
+                <select name="status" style="padding:6px 8px;">
+                    <option value="">Tình trạng</option>
+                    <option value="selling" <?= (isset($_GET['status']) && $_GET['status']=='selling')?'selected':'' ?>>Còn hàng</option>
+                    <option value="hidden" <?= (isset($_GET['status']) && $_GET['status']=='hidden')?'selected':'' ?>>Ẩn</option>
+                    <option value="discounting" <?= (isset($_GET['status']) && $_GET['status']=='discounting')?'selected':'' ?>>Đang giảm giá</option>
+                    <option value="soldout" <?= (isset($_GET['status']) && $_GET['status']=='soldout')?'selected':'' ?>>Hết hàng</option>
+                </select>
+
+                <button type="submit" style="padding:6px 10px;">Lọc</button>
+                <a href="manage-products.php" style="padding:6px 10px; background:#f8f9fa; border:1px solid #ddd; text-decoration:none; color:#333;">Reset</a>
+            </form>
             <table class="admin-table">
                 <thead>
                     <tr>
@@ -1705,14 +1733,33 @@ while ($brand = mysqli_fetch_assoc($brands_result)) {
                 </thead>
                 <tbody id="product-list">
                     <?php
-                    // Lấy danh sách sản phẩm với tên hãng xe
-                    $query = "SELECT p.*, c.type_name 
-                              FROM products p 
-                              LEFT JOIN car_types c ON p.brand_id = c.type_id 
-                              ORDER BY p.product_id ASC";
-                    $result = mysqli_query($connect, $query);
+                    // Lấy danh sách sản phẩm với tên hãng xe — hỗ trợ lọc từ form ở trên
+                    $wheres = [];
+                    if (!empty($_GET['keyword'])) {
+                        $kw = mysqli_real_escape_string($connect, $_GET['keyword']);
+                        $wheres[] = "p.car_name LIKE '%" . $kw . "%'";
+                    }
+                    if (!empty($_GET['car_type'])) {
+                        $type = (int)$_GET['car_type'];
+                        $wheres[] = "p.brand_id = " . $type;
+                    }
+                    if (!empty($_GET['price_filter'])) {
+                        $pf = $_GET['price_filter'];
+                        if ($pf == '1') $wheres[] = "p.price < 500000000";
+                        elseif ($pf == '2') $wheres[] = "p.price BETWEEN 500000000 AND 1000000000";
+                        elseif ($pf == '3') $wheres[] = "p.price > 1000000000";
+                    }
+                    if (!empty($_GET['status'])) {
+                        $st = mysqli_real_escape_string($connect, $_GET['status']);
+                        $wheres[] = "p.status = '" . $st . "'";
+                    }
 
-                    if (mysqli_num_rows($result) > 0) {
+                    $sql = "SELECT p.*, c.type_name FROM products p LEFT JOIN car_types c ON p.brand_id = c.type_id";
+                    if ($wheres) $sql .= ' WHERE ' . implode(' AND ', $wheres);
+                    $sql .= ' ORDER BY p.product_id ASC';
+
+                    $result = mysqli_query($connect, $sql);
+                    if ($result && mysqli_num_rows($result) > 0) {
                         while ($row = mysqli_fetch_assoc($result)) {
                             echo '<tr>';
                             echo '<td>' . $row['product_id'] . '</td>';

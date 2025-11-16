@@ -2281,7 +2281,10 @@ function getTimeBasedGreeting()
                         Đăng nhập
                     </a>
                     <span class="separator"></span>
+<<<<<<< HEAD
                     </a>
+=======
+>>>>>>> 9e8891c346e764570cf2a26dd549167c036c9343
                 </div>
             <?php endif; ?>
         </div>
