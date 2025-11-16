@@ -426,7 +426,8 @@ if (isset($_SESSION['notification'])) {
         background-color: #c0392b;
     }
 
-    Specific hover effect for Ban button .admin-table button[style*="background-color: red;"] {
+    /* Specific hover effect for Ban button */
+    .admin-table button[style*="background-color: red;"] {
         background-color: #e74c3c;
         color: white;
         border: none;
@@ -435,11 +436,8 @@ if (isset($_SESSION['notification'])) {
 
     .admin-table button[style*="background-color: red;"]:hover {
         background-color: #c0392b;
-        /* Darker red on hover  */
         transform: scale(1.1);
-        /* Slight zoom effect  */
         box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.2);
-        /* Add shadow  */
     }
 
     /* More Button Styling */
@@ -1743,21 +1741,19 @@ if (isset($_SESSION['notification'])) {
   const fmt = n => (Number(n)||0).toLocaleString('vi-VN');
 
   // === Mở / đóng modal ===
-    function showOrderModal(){
-      resetOrderModal();          // mỗi lần mở là trạng thái mới
-      modal.style.display = 'flex';
-    }
-    window.showOrderModal = showOrderModal;
+  function showOrderModal(){
+    resetOrderModal();          // mỗi lần mở là trạng thái mới
+    modal.style.display = 'flex';
+  }
+  function hideOrderModal(){
+    modal.style.display = 'none';
+    resetOrderModal();          // đóng cũng reset sạch
+  }
 
-    function hideOrderModal(){
-      modal.style.display = 'none';
-      resetOrderModal();          // đóng bằng X hay click nền đều reset sạch
-    }
-    window.hideOrderModal = hideOrderModal;
-
-  window.showOrderModal = showOrderModal;   // <= thêm dòng này
-  function hideOrderModal(){ modal.style.display='none'; }
+  // gắn ra window cho nút ngoài HTML dùng
+  window.showOrderModal = showOrderModal;
   window.hideOrderModal = hideOrderModal;
+
   $('#addOrderBtn')?.addEventListener('click', e => { e.preventDefault(); showOrderModal(); });
   $('#addOrderForm')?.addEventListener('submit', async function(e){
   e.preventDefault();
