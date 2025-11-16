@@ -126,6 +126,15 @@ if (!empty($_GET['status']) && $_GET['status'] !== 'all') {
     $types .= "s";
 }
 
+// Keyword search (full_name / username)
+if (!empty($_GET['keyword'])) {
+    $where_clauses[] = "(u.full_name LIKE ? OR u.username LIKE ?)";
+    $kw = '%' . $_GET['keyword'] . '%';
+    $params[] = $kw;
+    $params[] = $kw;
+    $types .= "ss";
+}
+
 // Base query
 $query = "SELECT o.*, u.username, u.full_name, u.phone_num, u.email 
           FROM orders o 
@@ -417,7 +426,8 @@ if (isset($_SESSION['notification'])) {
         background-color: #c0392b;
     }
 
-    Specific hover effect for Ban button .admin-table button[style*="background-color: red;"] {
+    /* Specific hover effect for Ban button */
+    .admin-table button[style*="background-color: red;"] {
         background-color: #e74c3c;
         color: white;
         border: none;
@@ -426,11 +436,8 @@ if (isset($_SESSION['notification'])) {
 
     .admin-table button[style*="background-color: red;"]:hover {
         background-color: #c0392b;
-        /* Darker red on hover  */
         transform: scale(1.1);
-        /* Slight zoom effect  */
         box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.2);
-        /* Add shadow  */
     }
 
     /* More Button Styling */
@@ -908,6 +915,46 @@ if (isset($_SESSION['notification'])) {
             <i class="fa-solid fa-credit-card"></i> Manage Payment Methods
           </button>
         </div>
+
+        <!-- Search by Full Name / Username -->
+        <form method="GET" action="manage-orders.php" style="margin-bottom:16px;">
+          <div style="display:flex; gap:8px; align-items:center; max-width:480px;">
+            <input
+              type="text"
+              name="keyword"
+              placeholder="Search by full name or username..."
+              value="<?= htmlspecialchars($_GET['keyword'] ?? '') ?>"
+              style="flex:1; padding:8px 10px; border:1px solid #ddd; border-radius:6px;"
+            >
+            <button type="submit"
+              style="
+                padding:8px 14px;
+                border-radius:6px;
+                border:none;
+                background:#1abc9c;
+                color:#fff;
+                display:inline-flex;
+                align-items:center;
+                gap:6px;
+                cursor:pointer;
+              ">
+              <i class="fas fa-search"></i> Search
+            </button>
+            <a href="manage-orders.php"
+              style="
+                padding:8px 12px;
+                border-radius:6px;
+                border:1px solid #ddd;
+                background:#f8f9fa;
+                text-decoration:none;
+                color:#666;
+                white-space:nowrap;
+              ">
+              Reset
+            </a>
+          </div>
+        </form>
+
 
       <style>
       #addOrderBtn {
@@ -1694,21 +1741,19 @@ if (isset($_SESSION['notification'])) {
   const fmt = n => (Number(n)||0).toLocaleString('vi-VN');
 
   // === Mở / đóng modal ===
-    function showOrderModal(){
-      resetOrderModal();          // mỗi lần mở là trạng thái mới
-      modal.style.display = 'flex';
-    }
-    window.showOrderModal = showOrderModal;
+  function showOrderModal(){
+    resetOrderModal();          // mỗi lần mở là trạng thái mới
+    modal.style.display = 'flex';
+  }
+  function hideOrderModal(){
+    modal.style.display = 'none';
+    resetOrderModal();          // đóng cũng reset sạch
+  }
 
-    function hideOrderModal(){
-      modal.style.display = 'none';
-      resetOrderModal();          // đóng bằng X hay click nền đều reset sạch
-    }
-    window.hideOrderModal = hideOrderModal;
-
-  window.showOrderModal = showOrderModal;   // <= thêm dòng này
-  function hideOrderModal(){ modal.style.display='none'; }
+  // gắn ra window cho nút ngoài HTML dùng
+  window.showOrderModal = showOrderModal;
   window.hideOrderModal = hideOrderModal;
+
   $('#addOrderBtn')?.addEventListener('click', e => { e.preventDefault(); showOrderModal(); });
   $('#addOrderForm')?.addEventListener('submit', async function(e){
   e.preventDefault();
