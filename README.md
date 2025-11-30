@@ -7,6 +7,9 @@ This application features functionalities like task scheduling, note categorizat
 
 ## Project’s members
 Đoàn Dương thùy Linh - 3123411175
+
 Đỗ Vĩ Ngạn - 3123411195
+
 Phạm Hoàng Long - 3123411181
+
 Lưu Chấn Hào - 3123411083
