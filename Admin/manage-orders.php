@@ -1,8 +1,127 @@
 <?php
+// ===== AJAX BACKEND for Customer & Product typeahead (JSON only) =====
+if (isset($_GET['ajax']) && ($_GET['ajax'] === 'search_users' || $_GET['ajax'] === 'search_products')) {
+    header('Content-Type: application/json; charset=utf-8');
+
+    // Kết nối DB riêng, KHÔNG include header.php để khỏi đổ HTML vào JSON
+    require_once __DIR__ . '/../User/connect.php';
+
+    // Đảm bảo có biến $connect (mysqli)
+    if (!isset($connect) || !($connect instanceof mysqli)) {
+        if (isset($conn) && $conn instanceof mysqli) {
+            $connect = $conn;
+        } elseif (isset($mysqli) && $mysqli instanceof mysqli) {
+            $connect = $mysqli;
+        } elseif (isset($link) && $link instanceof mysqli) {
+            $connect = $link;
+        } else {
+            echo json_encode([]);
+            exit;
+        }
+    }
+    if (method_exists($connect, 'set_charset')) {
+        $connect->set_charset('utf8mb4');
+    }
+
+    $q = trim((string)($_GET['q'] ?? ''));
+    if ($q === '') {
+        echo json_encode([]);
+        exit;
+    }
+
+    try {
+        if ($_GET['ajax'] === 'search_users') {
+            // Gợi ý Customer: username + full_name
+            $like = '%' . $q . '%';
+            $sql = "
+                SELECT id, username, full_name
+                FROM users_acc
+                WHERE status = 'activated'
+                  AND (username LIKE ? OR full_name LIKE ?)
+                ORDER BY username ASC
+                LIMIT 20
+            ";
+            $stmt = $connect->prepare($sql);
+            $stmt->bind_param('ss', $like, $like);
+            $stmt->execute();
+            $rs = $stmt->get_result();
+
+            $users = [];
+            while ($row = $rs->fetch_assoc()) {
+                $users[] = [
+                    'id'        => (int)$row['id'],
+                    'username'  => (string)$row['username'],
+                    'full_name' => (string)($row['full_name'] ?? '')
+                ];
+            }
+            $stmt->close();
+
+            echo json_encode($users, JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        if ($_GET['ajax'] === 'search_products') {
+            // Gợi ý Product: name + price + remain_quantity
+            $like = '%' . $q . '%';
+            $sql = "
+                SELECT 
+                    product_id,
+                    car_name AS name,
+                    price,
+                    remain_quantity
+                FROM products
+                WHERE (status IS NULL OR status <> 'hidden')
+                  AND remain_quantity > 0
+                  AND car_name LIKE ?
+                ORDER BY car_name ASC
+                LIMIT 20
+            ";
+            $stmt = $connect->prepare($sql);
+            $stmt->bind_param('s', $like);
+            $stmt->execute();
+            $rs = $stmt->get_result();
+
+            $products = [];
+            while ($row = $rs->fetch_assoc()) {
+                $products[] = [
+                    'product_id'      => (int)$row['product_id'],
+                    'name'            => (string)$row['name'],
+                    'price'           => (float)$row['price'],
+                    'remain_quantity' => (int)$row['remain_quantity'],
+                ];
+            }
+            $stmt->close();
+
+            echo json_encode($products, JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        echo json_encode([]);
+        exit;
+
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode([
+            'error'   => true,
+            'message' => $e->getMessage()
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+}
+
+// ===== PHẦN CŨ: chỉ chạy khi KHÔNG phải AJAX =====
+
+
 include 'header.php';
 
+
 // load options cho form popup
-$users_rs = $connect->query("SELECT id, username FROM users_acc WHERE status='activated' ORDER BY username");
+$users_rs = $connect->query("
+  SELECT id, username, full_name
+  FROM users_acc
+  WHERE status = 'activated'
+  ORDER BY username
+");
 $USERS = $users_rs ? $users_rs->fetch_all(MYSQLI_ASSOC) : [];
 
 $pms_rs = $connect->query("
@@ -13,6 +132,7 @@ $pms_rs = $connect->query("
 ");
 $PMS = $pms_rs ? $pms_rs->fetch_all(MYSQLI_ASSOC) : [];
 
+// chú ý: đã có remain_quantity trong query này rồi
 $pros_rs = $connect->query("
   SELECT product_id, car_name AS name, price, remain_quantity
   FROM products
@@ -20,7 +140,6 @@ $pros_rs = $connect->query("
   ORDER BY car_name
 ");
 $PROS = $pros_rs ? $pros_rs->fetch_all(MYSQLI_ASSOC) : [];
-
 
 // Add this PHP function at the top of the file
 function buildFilterQuery($filters)
@@ -1152,25 +1271,29 @@ if (isset($_SESSION['notification'])) {
 
     <form id="addOrderForm" method="post">
       <div class="order-top-row">
-        <!-- Customer -->
+        <!-- CUSTOMER -->
         <div class="order-field order-field--customer">
-          <label>Customer</label>
-          <div class="typeahead cust-wrapper invalid">
+          <label>Customer <span class="tag-required">must choose from list</span></label>
+          <!-- THÊM class typeahead ở đây -->
+          <div class="cust-wrapper typeahead invalid">
             <input
               type="text"
               id="custSearch"
-              placeholder="Search & choose customer..."
+              placeholder="Type customer's username or fullname"
               autocomplete="off"
             >
             <input type="hidden" name="user_id" id="custId">
+
+            <!-- dropdown gợi ý sẽ dùng chung .typeahead .suggest như Product -->
             <div class="suggest"></div>
             <div class="cust-helper">
-              You must <b>choose a customer from the suggestions.</b>
+              Type at least 2 characters, then choose one line from the suggestions.
             </div>
           </div>
         </div>
 
-        <!-- Payment (nằm ngay kế bên) -->
+
+        <!-- PAYMENT -->
         <div class="order-field order-field--payment">
           <label>Payment</label>
           <select id="ordPayment" name="payment_method_id" required>
@@ -1181,6 +1304,7 @@ if (isset($_SESSION['notification'])) {
           </select>
         </div>
       </div>
+
 
       <!-- Address riêng 1 hàng bên dưới -->
       <div class="order-address-row">
@@ -1722,6 +1846,109 @@ if (isset($_SESSION['notification'])) {
       }
     }
 
+      // ==== CUSTOMER TYPEAHEAD (AJAX search_users.php) ====
+      (function(){
+        const inp  = document.getElementById('custSearch');
+        const hid  = document.getElementById('custId');
+        const wrap = document.querySelector('.cust-wrapper');
+        const sug  = wrap?.querySelector('.suggest');
+        const helper = wrap?.querySelector('.cust-helper');
+        if (!inp || !hid || !sug || !wrap) return;
+
+        function setCustomerState(selected){
+          wrap.classList.toggle('valid', !!selected);
+          wrap.classList.toggle('invalid', !selected);
+          if (!selected && helper){
+            helper.innerHTML = 'You must <b>choose a customer from the suggestions</b>.';
+          } else if (helper){
+            helper.textContent = 'Customer selected from list.';
+          }
+        }
+
+        let timer=null, lastQ='';
+
+        async function fetchUsers(q){
+          try{
+            const url = 'manage-orders.php?ajax=search_users&q=' + encodeURIComponent(q);
+            const res = await fetch(url, { cache:'no-store' });
+            if (!res.ok) return [];
+            return await res.json(); // JSON array: [{id, username, full_name}, ...]
+          }catch(e){
+            console.error('User fetch error', e);
+            return [];
+          }
+        }
+
+
+          function render(list){
+            if (!list.length){
+              sug.style.display='none';
+              setCustomerState(false);
+              return;
+            }
+            // username bên trái, fullname bên phải (trên cùng một hàng)
+            sug.innerHTML = list.map(u => `
+              <div class="s-item" data-id="${u.id}">
+                <span class="s-name">${u.username}</span>
+                <span class="s-meta">${u.full_name || ''}</span>
+              </div>
+            `).join('');
+
+            // hiển thị dropdown
+            sug.style.display='block';
+
+            // gắn sự kiện click
+            sug.querySelectorAll('.s-item').forEach(it=>{
+              it.addEventListener('click',()=>{
+                hid.value = it.dataset.id;
+                inp.value = it.querySelector('.s-name').textContent;
+                sug.style.display='none';
+                setCustomerState(true);
+              });
+            });
+          }
+
+
+        const doQuery = async (q)=>{
+          q = q.trim();
+          if (!q){
+            sug.style.display='none';
+            hid.value = '';
+            setCustomerState(false);
+            return;
+          }
+          lastQ = q;
+          const list = await fetchUsers(q);
+          if (lastQ !== q) return;
+          render(list);
+        };
+
+        const debounced = (q)=>{ clearTimeout(timer); timer=setTimeout(()=>doQuery(q),180); };
+
+        inp.addEventListener('input',()=>{
+          hid.value = '';
+          setCustomerState(false);
+          if (inp.value.trim().length < 2){
+            sug.style.display='none';
+            return;
+          }
+          debounced(inp.value);
+        });
+
+        inp.addEventListener('focus',()=>{
+          if (inp.value.trim().length >= 2) debounced(inp.value);
+        });
+
+        document.addEventListener('click',(ev)=>{
+          if(!sug.contains(ev.target) && ev.target!==inp){
+            sug.style.display='none';
+          }
+        });
+
+        setCustomerState(false);
+      })();
+
+
   if (addrInp && shipAddrHidden) {
     // khi gõ cũng sync sang input ẩn
     addrInp.addEventListener('input', () => {
@@ -1834,7 +2061,8 @@ if (isset($_SESSION['notification'])) {
 
     // --- Cột Product (typeahead AJAX) ---
     const tdProd = document.createElement('td');
-    tdProd.style.border='1px solid #eee'; tdProd.style.padding='8px';
+    tdProd.style.border='1px solid #eee';
+    tdProd.style.padding='8px';
     tdProd.innerHTML = `
       <div class="typeahead">
         <input type="text" class="prod-input" placeholder="Type product name..." style="min-width:320px; padding:6px 8px;">
@@ -1850,98 +2078,10 @@ if (isset($_SESSION['notification'])) {
     const hint = wrap.querySelector('.suggest-hint');
     bindTypeahead(tr, inp, hid, sug, hint);
 
-        // ==== CUSTOMER TYPEAHEAD (AJAX search_users.php) ====
-        (function(){
-            const inp  = document.getElementById('custSearch');
-            const hid  = document.getElementById('custId');
-            const wrap = document.querySelector('.cust-wrapper');
-            const sug  = wrap?.querySelector('.suggest');
-            const helper = wrap?.querySelector('.cust-helper');
-            if (!inp || !hid || !sug || !wrap) return;
-
-            function setCustomerState(selected){
-                wrap.classList.toggle('valid', !!selected);
-                wrap.classList.toggle('invalid', !selected);
-                if (!selected && helper){
-                    helper.innerHTML = 'You must <b>choose a customer from the suggestions</b>.';
-                } else if (helper){
-                    helper.textContent = 'Customer selected from list.';
-                }
-            }
-
-            let timer=null, lastQ='';
-
-            async function fetchUsers(q){
-                try{
-                    const res = await fetch('search_users.php?q='+encodeURIComponent(q), {cache:'no-store'});
-                    if (!res.ok) return [];
-                    return await res.json();
-                }catch(e){
-                    console.error('User fetch error',e);
-                    return [];
-                }
-            }
-
-            function render(list){
-                if (!list.length){
-                    sug.style.display='none';
-                    setCustomerState(false);
-                    return;
-                }
-                sug.innerHTML = list.map(u=>`
-                    <div class="s-item" data-id="${u.id}">
-                        <span class="s-name">${u.username}</span>
-                        <span class="s-meta">${u.full_name || ''}</span>
-                    </div>`).join('');
-                sug.style.display='block';
-                sug.querySelectorAll('.s-item').forEach(it=>{
-                    it.addEventListener('click',()=>{
-                        hid.value = it.dataset.id;
-                        inp.value = it.querySelector('.s-name').textContent;
-                        sug.style.display='none';
-                        setCustomerState(true);
-                    });
-                });
-            }
-
-            const doQuery = async (q)=>{
-                q = q.trim();
-                if (!q){
-                    sug.style.display='none';
-                    hid.value = '';
-                    setCustomerState(false);
-                    return;
-                }
-                lastQ = q;
-                const list = await fetchUsers(q);
-                if (lastQ !== q) return;
-                render(list);
-            };
-
-            const debounced = (q)=>{ clearTimeout(timer); timer=setTimeout(()=>doQuery(q),180); };
-
-            // Gõ lại -> coi như chưa chọn
-            inp.addEventListener('input',()=>{
-                hid.value = '';
-                setCustomerState(false);
-                debounced(inp.value);
-            });
-
-            inp.addEventListener('focus',()=>debounced(inp.value));
-
-            document.addEventListener('click',(ev)=>{
-                if(!sug.contains(ev.target) && ev.target!==inp){
-                    sug.style.display='none';
-                }
-            });
-
-            // Khởi tạo trạng thái ban đầu
-            setCustomerState(false);
-        })();
-
     // --- Cột Price ---
     const tdPrice=document.createElement('td');
-    tdPrice.style.border='1px solid #eee'; tdPrice.style.padding='8px';
+    tdPrice.style.border='1px solid #eee';
+    tdPrice.style.padding='8px';
     tdPrice.innerHTML = `<input name="price[]" type="number" step="0.01" min="0" value="0" style="width:120px; padding:6px 8px;">`;
     const priceInp = tdPrice.querySelector('input[name="price[]"]');
     priceInp.addEventListener('input', ()=> recalcRow(tr));
@@ -1949,12 +2089,14 @@ if (isset($_SESSION['notification'])) {
 
     // --- Cột Stock ---
     const tdStock=document.createElement('td');
-    tdStock.style.border='1px solid #eee'; tdStock.style.padding='8px';
+    tdStock.style.border='1px solid #eee';
+    tdStock.style.padding='8px';
     tdStock.innerHTML = `<span class="stock">0</span>`;
 
     // --- Cột Qty (+/-) ---
     const tdQty=document.createElement('td');
-    tdQty.style.border='1px solid #eee'; tdQty.style.padding='8px';
+    tdQty.style.border='1px solid #eee';
+    tdQty.style.padding='8px';
     tdQty.innerHTML = `
       <div class="qtybox">
         <button type="button" class="qtybtn dec">−</button>
@@ -1971,18 +2113,21 @@ if (isset($_SESSION['notification'])) {
 
     // --- Cột Subtotal ---
     const tdSum=document.createElement('td');
-    tdSum.style.border='1px solid #eee'; tdSum.style.padding='8px';
+    tdSum.style.border='1px solid #eee';
+    tdSum.style.padding='8px';
     tdSum.innerHTML = `<span class="sum">0</span>`;
 
     // --- Cột Delete ---
     const tdDel=document.createElement('td');
-    tdDel.style.border='1px solid #eee'; tdDel.style.padding='8px';
+    tdDel.style.border='1px solid #eee';
+    tdDel.style.padding='8px';
     tdDel.innerHTML = `<button type="button" class="btn btn-danger">Delete</button>`;
     tdDel.querySelector('button').addEventListener('click', ()=>{ tr.remove(); recalcTotal(); });
 
     tr.append(tdProd, tdPrice, tdStock, tdQty, tdSum, tdDel);
     body.appendChild(tr);
   }
+
 
   // === Gắn sự kiện cho nút + Add product ===
   document.getElementById('btnAddOrderRow')?.addEventListener('click', () => {
@@ -2029,7 +2174,7 @@ if (isset($_SESSION['notification'])) {
   let suggestTimer=null, lastQuery='';
   async function fetchSuggest(q){
     try{
-      const url = 'search_products.php?q=' + encodeURIComponent(q);
+      const url = 'manage-orders.php?ajax=search_products&q=' + encodeURIComponent(q);
       const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) {
         console.error('[typeahead] HTTP', res.status, '->', url);
@@ -2044,6 +2189,7 @@ if (isset($_SESSION['notification'])) {
       return { error: err?.message || String(err), list: [] };
     }
   }
+
 
   function bindTypeahead(tr, inp, hid, sug, hint){
     const render=(list)=>{

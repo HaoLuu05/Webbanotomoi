@@ -75,8 +75,4 @@ try {
     http_response_code(500);
     // Không trả lỗi chi tiết ra ngoài để tránh lộ info
     echo json_encode([], JSON_UNESCAPED_UNICODE);
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 9e8891c346e764570cf2a26dd549167c036c9343
